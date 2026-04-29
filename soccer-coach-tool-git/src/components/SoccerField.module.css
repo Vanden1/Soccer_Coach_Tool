@@ -1,0 +1,855 @@
+.wrapper {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+.wrapperVideoMode {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
+}
+
+.wrapperVideoMode .tabShell {
+  flex-shrink: 0;
+}
+
+.tabShell {
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 color-mix(in srgb, #fff 28%, transparent);
+}
+
+.tabList {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-soft) 70%, transparent);
+}
+
+.tab {
+  flex: 1 1 auto;
+  min-width: min(100%, 5.5rem);
+  padding: 10px clamp(8px, 2vw, 14px);
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--text);
+  font-size: clamp(11px, 2.6vw, 14px);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.tab:hover {
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--surface-strong) 65%, transparent);
+}
+
+.tabActive {
+  color: var(--text-h);
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-strong) 80%, transparent);
+}
+
+.tabPanel {
+  padding: 0;
+}
+
+/* Explicit hide: some browsers/extensions override [hidden]; keep panels in DOM for aria-controls. */
+.tabPanelHidden {
+  display: none !important;
+}
+
+.tabPanelInner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: clamp(12px, 3vw, 14px) clamp(12px, 3vw, 14px) 16px;
+}
+
+.videoTabPanelInner {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.controlsLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.controlsRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.input {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  min-width: min(11rem, 100%);
+  max-width: 100%;
+}
+
+.select {
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 8px 34px 8px 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--text) 50%) calc(100% - 16px)
+      calc(50% - 3px) / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--text) 50%, transparent 50%)
+      calc(100% - 11px) calc(50% - 3px) / 6px 6px no-repeat,
+    color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  min-width: min(7.5rem, 100%);
+  max-width: 100%;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent),
+    0 8px 16px -14px color-mix(in srgb, #000 55%, transparent);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.select:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background:
+    linear-gradient(45deg, transparent 50%, var(--text-h) 50%)
+      calc(100% - 16px) calc(50% - 3px) / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--text-h) 50%, transparent 50%)
+      calc(100% - 11px) calc(50% - 3px) / 6px 6px no-repeat,
+    color-mix(in srgb, var(--accent-bg) 28%, var(--surface-strong));
+}
+
+.select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent-bg) 80%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent);
+}
+
+.btn {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent-bg) 45%, var(--surface-strong));
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.legendSwatchOffense,
+.legendSwatchDefense,
+.legendSwatchBall {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.legendSwatchOffense {
+  background: #2563eb;
+}
+
+.legendSwatchDefense {
+  background: #ef4444;
+}
+
+.nameTabPanelInner {
+  align-items: flex-start;
+}
+
+.nameSection {
+  flex-basis: 100%;
+  width: 100%;
+}
+
+.nameSectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 4px;
+  text-align: left;
+}
+
+.nameSectionHint {
+  font-size: 12px;
+  color: var(--text);
+  margin: 0 0 10px;
+  text-align: left;
+  line-height: 140%;
+}
+
+.nameColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .nameColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nameColTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.nameRowNum {
+  width: 1.25rem;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: inherit;
+}
+
+.playerWrap {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.playerWrap .player {
+  position: relative;
+  left: auto;
+  top: auto;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.playerNameTag {
+  pointer-events: none;
+  max-width: clamp(28px, 8vmin, 34px);
+  width: 100%;
+  font-size: clamp(8px, 2.2vmin, 11px);
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  color: #fff;
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.85),
+    0 1px 2px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legendSwatchBall {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #0a0a0a 25%, transparent 25%),
+    linear-gradient(-45deg, #0a0a0a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #0a0a0a 75%),
+    linear-gradient(-45deg, transparent 75%, #0a0a0a 75%);
+  background-size: 5px 5px;
+  background-position:
+    0 0,
+    0 2.5px,
+    2.5px -2.5px,
+    -2.5px 0;
+}
+
+.toolGroup {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toolBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.toolBtn:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.toolBtnActive {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.colorRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.colorSwatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.colorSwatch:hover {
+  border-color: var(--text-h);
+}
+
+.colorSwatchActive {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.colorPicker {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--bg);
+}
+
+.thicknessRange {
+  width: min(120px, 100%);
+  flex: 1 1 120px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.videoFileInput {
+  display: none;
+}
+
+.annotationSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.annotationSvgInteractive {
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: crosshair;
+}
+
+.annotationSvgErase {
+  cursor: pointer;
+}
+
+.fieldOuter {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.videoFieldOuter {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.videoField {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: clamp(12px, 2.5vw, 18px);
+  overflow: hidden;
+  background: #05070c;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, transparent);
+  box-shadow:
+    0 18px 32px -20px rgba(0, 0, 0, 0.75),
+    0 8px 18px -12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.videoPlayer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.videoControlsBar {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 6;
+  transform: translateX(-50%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #030712 72%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.videoButtonsRow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.videoControlBtn {
+  border: 1px solid color-mix(in srgb, var(--border-strong) 90%, transparent);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 120ms ease;
+}
+
+.videoControlBtn:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent-bg) 36%, var(--surface-strong));
+}
+
+.videoControlBtn:active {
+  transform: translateY(1px);
+}
+
+.videoTimelineRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: min(90vw, 640px);
+}
+
+.videoTimeline {
+  flex: 1;
+  width: 100%;
+}
+
+.videoTimeText {
+  min-width: 2.8rem;
+  text-align: center;
+  color: color-mix(in srgb, var(--text-h) 88%, #fff);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.videoPlaceholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 18px;
+  color: color-mix(in srgb, var(--text-h) 84%, #ffffff);
+  font-size: 0.95rem;
+  background:
+    radial-gradient(circle at 50% 25%, rgba(71, 94, 152, 0.32), transparent 52%),
+    #0a1020;
+}
+
+.field {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 3 / 2;
+  border-radius: clamp(12px, 2.5vw, 18px);
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  background:
+    radial-gradient(
+        circle at 50% 50%,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(255, 255, 255, 0) 45%
+      )
+      ,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 0),
+    repeating-linear-gradient(
+      90deg,
+      rgba(30, 140, 64, 0.95) 0,
+      rgba(30, 140, 64, 0.95) 10%,
+      rgba(25, 122, 56, 0.95) 10%,
+      rgba(25, 122, 56, 0.95) 20%
+    );
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, transparent);
+  box-shadow:
+    0 18px 32px -20px rgba(0, 0, 0, 0.75),
+    0 8px 18px -12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.pitchLines {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: inherit;
+}
+
+.pitchLines::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 100%;
+  width: 2px;
+  transform: translateX(-1px);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.pitchLines::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(140px, 26%);
+  aspect-ratio: 1;
+  height: auto;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-sizing: border-box;
+}
+
+.goalLeft,
+.goalRight {
+  position: absolute;
+  top: 50%;
+  width: clamp(26px, 4.8%, 46px);
+  height: clamp(64px, 38%, 140px);
+  transform: translateY(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+}
+
+.goalLeft {
+  left: 0;
+  border-left: none;
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.goalRight {
+  right: 0;
+  border-right: none;
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+.penaltyBoxLeft,
+.penaltyBoxRight {
+  position: absolute;
+  top: 50%;
+  height: 62%;
+  width: 18%;
+  transform: translateY(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.penaltyBoxLeft {
+  left: 0;
+  border-left: none;
+  border-top-right-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+.penaltyBoxRight {
+  right: 0;
+  border-right: none;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+.player {
+  position: absolute;
+  z-index: 3;
+  width: clamp(28px, 8vmin, 34px);
+  height: clamp(28px, 8vmin, 34px);
+  border-radius: 999px;
+  transform: translate(0, 0);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: clamp(10px, 2.8vmin, 13px);
+  user-select: none;
+  cursor: grab;
+  touch-action: none;
+  box-shadow:
+    rgba(0, 0, 0, 0.32) 0 12px 18px -12px,
+    rgba(0, 0, 0, 0.18) 0 4px 8px -4px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  transition: transform 120ms ease, box-shadow 140ms ease;
+}
+
+.player:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+.playerOffense {
+  background: rgba(37, 99, 235, 0.95);
+  color: white;
+}
+
+.playerDefense {
+  background: rgba(239, 68, 68, 0.95);
+  color: white;
+}
+
+.playerHighlighted {
+  box-shadow:
+    0 0 0 3px #facc15,
+    rgba(0, 0, 0, 0.28) 0 8px 18px -10px,
+    rgba(0, 0, 0, 0.18) 0 2px 6px -3px;
+}
+
+.ball {
+  position: absolute;
+  z-index: 3;
+  width: clamp(14px, 4.8vmin, 18px);
+  height: clamp(14px, 4.8vmin, 18px);
+  -webkit-touch-callout: none;
+  border-radius: 999px;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #0a0a0a 25%, transparent 25%),
+    linear-gradient(-45deg, #0a0a0a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #0a0a0a 75%),
+    linear-gradient(-45deg, transparent 75%, #0a0a0a 75%);
+  background-size: 50% 50%;
+  background-position:
+    0 0,
+    0 25%,
+    25% -25%,
+    -25% 0;
+  border: 2px solid rgba(30, 30, 30, 0.85);
+  box-shadow:
+    rgba(0, 0, 0, 0.35) 0 10px 20px -12px,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: transform 120ms ease;
+}
+
+.ball:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+@media (max-width: 560px) {
+  .tabPanelInner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .input,
+  .select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .toolGroup {
+    width: 100%;
+  }
+
+  .toolBtn {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .colorRow {
+    width: 100%;
+  }
+
+  .thicknessRange {
+    width: 100%;
+    flex: none;
+    max-width: none;
+  }
+
+  .videoTabPanelInner {
+    padding: 10px;
+  }
+}
+
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .toolBtn {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .colorSwatch {
+    width: 36px;
+    height: 36px;
+  }
+
+  .colorPicker {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .tab {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .videoControlsBar {
+    bottom: 10px;
+    gap: 6px;
+    padding: 7px;
+  }
+
+  .videoControlBtn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .videoTimelineRow {
+    width: min(92vw, 460px);
+  }
+
+  .nameRow {
+    margin-bottom: 10px;
+  }
+
+  .nameInput {
+    min-height: 44px;
+    padding: 10px 10px;
+    font-size: 16px;
+  }
+}

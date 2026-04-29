@@ -1,0 +1,2332 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import styles from './SoccerField.module.css'
+import {
+  ANNOTATION_COLORS,
+  type AnnotateTool,
+  type FieldAnnotation,
+  arrowHeadPoints,
+  hitTestAnnotation,
+  loadAnnotations,
+  saveAnnotations,
+  strokeLevelToSvgWidth,
+} from './fieldAnnotations'
+
+type AnnotationDraft =
+  | { kind: 'line'; x1: number; y1: number; x2: number; y2: number }
+  | { kind: 'arrow'; x1: number; y1: number; x2: number; y2: number }
+  | { kind: 'circle'; cx: number; cy: number; r: number }
+
+type TeamId = 'offense' | 'defense'
+
+type PieceType = 'player' | 'ball'
+
+type PieceId =
+  | `offense-${number}`
+  | `defense-${number}`
+  | 'ball'
+
+type Point = { x: number; y: number } // normalized: 0..1 within field
+
+type Piece = {
+  id: PieceId
+  type: PieceType
+  team?: TeamId
+  label: string
+  /** Optional display name (jersey # stays in `label`). */
+  name?: string
+  pos: Point
+}
+
+/** Stored without `ball`; keys like `offense-1`, `defense-11`. */
+type PlayerNamesMap = Partial<Record<Exclude<PieceId, 'ball'>, string>>
+
+type GkOverrides = Partial<Record<TeamId, Point>>
+
+type PieceSnapshot = {
+  id: PieceId
+  pos: Point
+}
+
+type Movement = {
+  id: PieceId
+  from: Point
+  to: Point
+}
+
+type PlayStep = {
+  movements: Movement[]
+}
+
+type SavedPlay = {
+  id: string
+  name: string
+  teamSize: 7 | 9 | 11
+  offenseFormation: string
+  defenseFormation: string
+  gkOverrides: GkOverrides
+  startPositions: PieceSnapshot[]
+  steps: PlayStep[]
+}
+
+function clamp01(n: number) {
+  return Math.min(1, Math.max(0, n))
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n))
+}
+
+function formatMediaTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const whole = Math.floor(seconds)
+  const hours = Math.floor(whole / 3600)
+  const mins = Math.floor((whole % 3600) / 60)
+  const secs = whole % 60
+  if (hours > 0) {
+    return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+  return `${mins}:${String(secs).padStart(2, '0')}`
+}
+
+function offsetAnnotation(
+  annotation: FieldAnnotation,
+  dx: number,
+  dy: number,
+): FieldAnnotation {
+  if (annotation.kind === 'circle') {
+    return {
+      ...annotation,
+      cx: clamp01(annotation.cx + dx),
+      cy: clamp01(annotation.cy + dy),
+    }
+  }
+  return {
+    ...annotation,
+    x1: clamp01(annotation.x1 + dx),
+    y1: clamp01(annotation.y1 + dy),
+    x2: clamp01(annotation.x2 + dx),
+    y2: clamp01(annotation.y2 + dy),
+  }
+}
+
+/** Formations per roster size (a-b-c-…: GK, back line, midfield, forwards, …). */
+const FORMATIONS_BY_SIZE: Record<7 | 9 | 11, readonly string[]> = {
+  7: ['1-2-3-1', '1-2-1-3', '1-1-3-2'],
+  9: ['1-3-4-1', '1-4-3-1', '1-3-1-3-1', '1-3-3-2', '1-3-2-3'],
+  11: ['1-3-4-3', '1-4-2-3-1', '1-4-4-2', '1-4-1-4-1', '1-3-5-2'],
+}
+
+const DEFAULT_FORMATION: Record<7 | 9 | 11, string> = {
+  7: '1-2-3-1',
+  9: '1-3-4-1',
+  11: '1-3-4-3',
+}
+
+/** Horizontal band for each team (normalized x). Offense attacks right; defense is mirrored. */
+const OFFENSE_X = { min: 0.22, max: 0.46 }
+const DEFENSE_X = { min: 0.54, max: 0.78 }
+
+/** GK sits centered in the penalty area. */
+const GK_X = {
+  offense: 0.09,
+  defense: 0.91,
+} as const
+
+const GK_OVERRIDE_STORAGE_KEY = 'soccerCoach.gkOverrides.v1'
+const PLAYS_STORAGE_KEY = 'soccerCoach.plays.v1'
+const PLAYER_NAMES_STORAGE_KEY = 'soccerCoach.playerNames.v1'
+
+const PLAYER_NAME_MAX = 40
+
+function isPlayerPieceId(s: string): s is Exclude<PieceId, 'ball'> {
+  return /^(offense|defense)-\d+$/.test(s)
+}
+
+function loadPlayerNames(): PlayerNamesMap {
+  try {
+    const raw = localStorage.getItem(PLAYER_NAMES_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: PlayerNamesMap = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!isPlayerPieceId(k) || typeof v !== 'string') continue
+      const t = v.trim().slice(0, PLAYER_NAME_MAX)
+      if (t) out[k] = t
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function savePlayerNames(names: PlayerNamesMap) {
+  try {
+    const trimmed: Record<string, string> = {}
+    for (const [k, v] of Object.entries(names)) {
+      if (!isPlayerPieceId(k) || typeof v !== 'string') continue
+      const t = v.trim().slice(0, PLAYER_NAME_MAX)
+      if (t) trimmed[k] = t
+    }
+    localStorage.setItem(PLAYER_NAMES_STORAGE_KEY, JSON.stringify(trimmed))
+  } catch {
+    // ignore
+  }
+}
+
+function playerNameFromMap(
+  names: PlayerNamesMap,
+  id: PieceId,
+): string | undefined {
+  if (id === 'ball') return undefined
+  return names[id as Exclude<PieceId, 'ball'>]?.trim() || undefined
+}
+
+function mergeNamesOntoPieces(
+  pieces: Piece[],
+  names: PlayerNamesMap,
+): Piece[] {
+  return pieces.map((p) => {
+    if (p.type === 'ball') return p
+    const name = playerNameFromMap(names, p.id)
+    return { ...p, name }
+  })
+}
+
+function isGkPieceId(id: PieceId): id is 'offense-1' | 'defense-1' {
+  return id === 'offense-1' || id === 'defense-1'
+}
+
+function teamFromGkId(id: 'offense-1' | 'defense-1'): TeamId {
+  return id === 'offense-1' ? 'offense' : 'defense'
+}
+
+function loadGkOverrides(): GkOverrides {
+  try {
+    const raw = localStorage.getItem(GK_OVERRIDE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const obj = parsed as Record<string, unknown>
+
+    const out: GkOverrides = {}
+    for (const team of ['offense', 'defense'] as const) {
+      const v = obj[team] as any
+      if (
+        v &&
+        typeof v === 'object' &&
+        typeof v.x === 'number' &&
+        typeof v.y === 'number'
+      ) {
+        out[team] = { x: clamp01(v.x), y: clamp01(v.y) }
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function saveGkOverrides(next: GkOverrides) {
+  try {
+    localStorage.setItem(GK_OVERRIDE_STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // ignore (private mode / quota / etc.)
+  }
+}
+
+function snapshotPieces(pieces: Piece[]): PieceSnapshot[] {
+  return pieces.map((p) => ({ id: p.id, pos: p.pos }))
+}
+
+function snapshotsToMap(snaps: PieceSnapshot[]): Map<PieceId, Point> {
+  const m = new Map<PieceId, Point>()
+  for (const s of snaps) {
+    m.set(s.id, s.pos)
+  }
+  return m
+}
+
+function loadPlays(): SavedPlay[] {
+  try {
+    const raw = localStorage.getItem(PLAYS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed as SavedPlay[]
+  } catch {
+    return []
+  }
+}
+
+function savePlays(plays: SavedPlay[]) {
+  try {
+    localStorage.setItem(PLAYS_STORAGE_KEY, JSON.stringify(plays))
+  } catch {
+    // ignore
+  }
+}
+
+function parseFormation(formation: string): number[] {
+  return formation.split('-').map((p) => {
+    const n = Number(p)
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`Invalid formation segment: ${p}`)
+    }
+    return n
+  })
+}
+
+function formationLayerXs(layerCount: number, team: TeamId): number[] {
+  if (layerCount <= 0) return []
+  if (layerCount === 1) return [GK_X[team]]
+
+  const out: number[] = new Array(layerCount)
+  out[0] = GK_X[team]
+
+  const remaining = layerCount - 1
+  if (remaining === 1) {
+    out[1] =
+      team === 'offense'
+        ? (OFFENSE_X.min + OFFENSE_X.max) / 2
+        : (DEFENSE_X.min + DEFENSE_X.max) / 2
+    return out
+  }
+
+  if (team === 'offense') {
+    for (let i = 0; i < remaining; i++) {
+      const t = i / (remaining - 1)
+      out[i + 1] = OFFENSE_X.min + (OFFENSE_X.max - OFFENSE_X.min) * t
+    }
+    return out
+  }
+
+  for (let i = 0; i < remaining; i++) {
+    const t = i / (remaining - 1)
+    out[i + 1] = DEFENSE_X.max - (DEFENSE_X.max - DEFENSE_X.min) * t
+  }
+  return out
+}
+
+/** Even vertical spacing for n players in one horizontal line (pitch height 0..1). */
+function ysForLine(n: number): number[] {
+  if (n <= 0) return []
+  if (n === 1) return [0.5]
+  return Array.from({ length: n }, (_, k) => {
+    const margin = 0.1
+    const span = 1 - 2 * margin
+    return margin + (span * (k + 0.5)) / n
+  })
+}
+
+function positionsFromFormation(formation: string, team: TeamId): Point[] {
+  const layers = parseFormation(formation)
+  const sum = layers.reduce((a, b) => a + b, 0)
+  if (sum === 0) return []
+
+  const xs = formationLayerXs(layers.length, team)
+  const out: Point[] = []
+
+  for (let i = 0; i < layers.length; i++) {
+    const count = layers[i]
+    const x = xs[i]
+    const ys = ysForLine(count)
+    for (let k = 0; k < count; k++) {
+      out.push({ x, y: ys[k] })
+    }
+  }
+
+  return out
+}
+
+function buildPieces(
+  teamSize: 7 | 9 | 11,
+  offenseFormation: string,
+  defenseFormation: string,
+  gkOverrides?: GkOverrides,
+): Piece[] {
+  const offense = positionsFromFormation(offenseFormation, 'offense')
+  const defense = positionsFromFormation(defenseFormation, 'defense')
+
+  if (offense.length !== teamSize || defense.length !== teamSize) {
+    console.warn(
+      'Formation player count mismatch',
+      teamSize,
+      offenseFormation,
+      defenseFormation,
+    )
+  }
+
+  const offensePlayers: Piece[] = offense.slice(0, teamSize).map((pos, idx) => ({
+    id: `offense-${idx + 1}`,
+    type: 'player',
+    team: 'offense',
+    label: String(idx + 1),
+    pos:
+      idx === 0 && gkOverrides?.offense
+        ? gkOverrides.offense
+        : pos,
+  }))
+
+  const defensePlayers: Piece[] = defense.slice(0, teamSize).map((pos, idx) => ({
+    id: `defense-${idx + 1}`,
+    type: 'player',
+    team: 'defense',
+    label: String(idx + 1),
+    pos:
+      idx === 0 && gkOverrides?.defense
+        ? gkOverrides.defense
+        : pos,
+  }))
+
+  const ball: Piece = {
+    id: 'ball',
+    type: 'ball',
+    label: 'ball',
+    pos: { x: 0.5, y: 0.5 },
+  }
+
+  return [...offensePlayers, ...defensePlayers, ball]
+}
+
+type DragState =
+  | {
+      pieceId: PieceId
+      pointerId: number
+      pointerOffsetPx: { x: number; y: number }
+      pieceSizePx: { width: number; height: number }
+    }
+  | undefined
+
+type PendingDragState = {
+  pieceId: PieceId
+  pointerId: number
+  pointerOffsetPx: { x: number; y: number }
+  pieceSizePx: { width: number; height: number }
+  startClientX: number
+  startClientY: number
+  target: HTMLElement
+}
+
+type AnnotationDragState = {
+  annotationId: string
+  pointerId: number
+  startPointer: Point
+  startAnnotation: FieldAnnotation
+  hostEl: HTMLElement
+}
+
+const DRAG_THRESHOLD_PX = 6
+const DOUBLE_TAP_MS = 420
+
+export type SoccerFieldTab =
+  | 'team'
+  | 'playerNames'
+  | 'recordings'
+  | 'annotations'
+  | 'playVideo'
+
+type SoccerFieldProps = {
+  onActiveTabChange?: (tab: SoccerFieldTab) => void
+}
+
+export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
+  const [teamSize, setTeamSize] = useState<7 | 9 | 11>(11)
+  const [offenseFormation, setOffenseFormation] = useState(
+    () => DEFAULT_FORMATION[11],
+  )
+  const [defenseFormation, setDefenseFormation] = useState(
+    () => DEFAULT_FORMATION[11],
+  )
+  const [gkOverrides, setGkOverrides] = useState<GkOverrides>(() =>
+    loadGkOverrides(),
+  )
+  const [playerNames, setPlayerNames] = useState<PlayerNamesMap>(() =>
+    loadPlayerNames(),
+  )
+  const playerNamesRef = useRef<PlayerNamesMap>(playerNames)
+  playerNamesRef.current = playerNames
+
+  const [pieces, setPieces] = useState<Piece[]>(() =>
+    mergeNamesOntoPieces(
+      buildPieces(11, DEFAULT_FORMATION[11], DEFAULT_FORMATION[11], loadGkOverrides()),
+      loadPlayerNames(),
+    ),
+  )
+  const fieldRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<DragState>(undefined)
+  const pendingDragRef = useRef<PendingDragState | null>(null)
+  const lastTouchTapRef = useRef<{ pieceId: PieceId; time: number } | null>(
+    null,
+  )
+  const piecesRef = useRef<Piece[]>(pieces)
+
+  const [highlightedPlayerIds, setHighlightedPlayerIds] = useState<
+    Set<PieceId>
+  >(() => new Set())
+
+  // Play recording / playback state
+  const [isRecording, setIsRecording] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [draftStart, setDraftStart] = useState<PieceSnapshot[] | null>(null)
+  const [draftSteps, setDraftSteps] = useState<PlayStep[]>([])
+  const [lastSnapshot, setLastSnapshot] = useState<PieceSnapshot[] | null>(null)
+
+  const [plays, setPlays] = useState<SavedPlay[]>(() => loadPlays())
+  const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null)
+  const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const animationRef = useRef<number | null>(null)
+
+  const [annotateTool, setAnnotateTool] = useState<AnnotateTool>('move')
+  const [annotations, setAnnotations] = useState<FieldAnnotation[]>(() =>
+    loadAnnotations(),
+  )
+  const [annotationDraft, setAnnotationDraft] = useState<AnnotationDraft | null>(
+    null,
+  )
+  const annotationDraftRef = useRef<AnnotationDraft | null>(null)
+  const [annotationColor, setAnnotationColor] = useState('#e11d48')
+  const [strokeLevel, setStrokeLevel] = useState(6)
+  const annotationDragRef = useRef<AnnotationDragState | null>(null)
+  const videoAnnotationDragRef = useRef<AnnotationDragState | null>(null)
+
+  const [activeTab, setActiveTab] = useState<SoccerFieldTab>('team')
+
+  const [videoAnnotateTool, setVideoAnnotateTool] = useState<AnnotateTool>('move')
+  const [videoAnnotations, setVideoAnnotations] = useState<FieldAnnotation[]>([])
+  const [videoAnnotationDraft, setVideoAnnotationDraft] =
+    useState<AnnotationDraft | null>(null)
+  const videoAnnotationDraftRef = useRef<AnnotationDraft | null>(null)
+  const [videoSourceUrl, setVideoSourceUrl] = useState<string | null>(null)
+  const [videoFileName, setVideoFileName] = useState('')
+  const videoObjectUrlRef = useRef<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const videoFieldRef = useRef<HTMLDivElement | null>(null)
+  const videoFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0)
+  const [videoDuration, setVideoDuration] = useState(0)
+
+  const formationOptions = FORMATIONS_BY_SIZE[teamSize]
+
+  const pieceById = useMemo(() => {
+    const m = new Map<PieceId, Piece>()
+    for (const p of pieces) m.set(p.id, p)
+    return m
+  }, [pieces])
+
+  useEffect(() => {
+    piecesRef.current = pieces
+  }, [pieces])
+
+  useEffect(() => {
+    savePlayerNames(playerNames)
+    setPieces((prev) =>
+      prev.map((p) => {
+        if (p.type === 'ball') return p
+        const name = playerNameFromMap(playerNames, p.id)
+        return { ...p, name }
+      }),
+    )
+  }, [playerNames])
+
+  useEffect(() => {
+    saveAnnotations(annotations)
+  }, [annotations])
+
+  useEffect(() => {
+    if (activeTab !== 'playVideo') {
+      setVideoAnnotations([])
+      setVideoAnnotationDraft(null)
+      videoAnnotationDraftRef.current = null
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    onActiveTabChange?.(activeTab)
+  }, [activeTab, onActiveTabChange])
+
+  useEffect(() => {
+    return () => {
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current)
+        videoObjectUrlRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const videoEl = videoRef.current
+    if (!videoEl) return
+    function syncState() {
+      const current = videoRef.current
+      if (!current) return
+      setIsVideoPlaying(!current.paused && !current.ended)
+      setVideoCurrentTime(current.currentTime || 0)
+      setVideoDuration(Number.isFinite(current.duration) ? current.duration : 0)
+    }
+    videoEl.addEventListener('play', syncState)
+    videoEl.addEventListener('pause', syncState)
+    videoEl.addEventListener('ended', syncState)
+    videoEl.addEventListener('loadedmetadata', syncState)
+    videoEl.addEventListener('durationchange', syncState)
+    videoEl.addEventListener('timeupdate', syncState)
+    videoEl.addEventListener('seeked', syncState)
+    syncState()
+    return () => {
+      videoEl.removeEventListener('play', syncState)
+      videoEl.removeEventListener('pause', syncState)
+      videoEl.removeEventListener('ended', syncState)
+      videoEl.removeEventListener('loadedmetadata', syncState)
+      videoEl.removeEventListener('durationchange', syncState)
+      videoEl.removeEventListener('timeupdate', syncState)
+      videoEl.removeEventListener('seeked', syncState)
+    }
+  }, [videoSourceUrl])
+
+  const commitAnnotation = useCallback(
+    (d: AnnotationDraft, color: string, sl: number) => {
+      const id =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `ann-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      if (d.kind === 'circle') {
+        if (d.r < 0.004) return
+        setAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'circle',
+            cx: d.cx,
+            cy: d.cy,
+            r: d.r,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+        return
+      }
+      const len = Math.hypot(d.x2 - d.x1, d.y2 - d.y1)
+      if (len < 0.004) return
+      if (d.kind === 'line') {
+        setAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'line',
+            x1: d.x1,
+            y1: d.y1,
+            x2: d.x2,
+            y2: d.y2,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+      } else {
+        setAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'arrow',
+            x1: d.x1,
+            y1: d.y1,
+            x2: d.x2,
+            y2: d.y2,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+      }
+    },
+    [],
+  )
+
+  const handleSvgPointerDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (annotateTool === 'move') return
+      e.stopPropagation()
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault()
+      }
+      const fieldEl = fieldRef.current
+      if (!fieldEl) return
+      const rect = fieldEl.getBoundingClientRect()
+      const x = clamp01((e.clientX - rect.left) / rect.width)
+      const y = clamp01((e.clientY - rect.top) / rect.height)
+
+      if (annotateTool === 'erase') {
+        const id = hitTestAnnotation(annotations, x, y)
+        if (id) {
+          setAnnotations((prev) => prev.filter((a) => a.id !== id))
+        }
+        return
+      }
+
+      const svgEl = e.currentTarget
+
+      const tool = annotateTool
+      if (tool === 'line' || tool === 'arrow') {
+        const draft: AnnotationDraft = {
+          kind: tool,
+          x1: x,
+          y1: y,
+          x2: x,
+          y2: y,
+        }
+        annotationDraftRef.current = draft
+        setAnnotationDraft(draft)
+      } else {
+        const draft: AnnotationDraft = { kind: 'circle', cx: x, cy: y, r: 0 }
+        annotationDraftRef.current = draft
+        setAnnotationDraft(draft)
+      }
+
+      const pid = e.pointerId
+      const colorAtStart = annotationColor
+      const strokeAtStart = strokeLevel
+
+      try {
+        svgEl.setPointerCapture(pid)
+      } catch {
+        // ignore if capture unsupported
+      }
+
+      const moveOpts: AddEventListenerOptions = { passive: false }
+
+      function move(ev: PointerEvent) {
+        if (ev.pointerId !== pid) return
+        if (ev.pointerType === 'touch') ev.preventDefault()
+        const el = fieldRef.current
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const nx = clamp01((ev.clientX - r.left) / r.width)
+        const ny = clamp01((ev.clientY - r.top) / r.height)
+        const prev = annotationDraftRef.current
+        if (!prev) return
+        let next: AnnotationDraft
+        if (prev.kind === 'circle') {
+          const rad = Math.hypot(nx - prev.cx, ny - prev.cy)
+          next = { ...prev, r: rad }
+        } else {
+          next = { ...prev, x2: nx, y2: ny }
+        }
+        annotationDraftRef.current = next
+        setAnnotationDraft(next)
+      }
+
+      function up(ev: PointerEvent) {
+        if (ev.pointerId !== pid) return
+        window.removeEventListener('pointermove', move, moveOpts)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        try {
+          if (svgEl.hasPointerCapture(pid)) svgEl.releasePointerCapture(pid)
+        } catch {
+          // ignore
+        }
+        const final = annotationDraftRef.current
+        annotationDraftRef.current = null
+        setAnnotationDraft(null)
+        if (final) {
+          commitAnnotation(final, colorAtStart, strokeAtStart)
+        }
+      }
+
+      window.addEventListener('pointermove', move, moveOpts)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    [annotateTool, annotations, annotationColor, strokeLevel, commitAnnotation],
+  )
+
+  const commitVideoAnnotation = useCallback(
+    (d: AnnotationDraft, color: string, sl: number) => {
+      const id =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `video-ann-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      if (d.kind === 'circle') {
+        if (d.r < 0.004) return
+        setVideoAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'circle',
+            cx: d.cx,
+            cy: d.cy,
+            r: d.r,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+        return
+      }
+      const len = Math.hypot(d.x2 - d.x1, d.y2 - d.y1)
+      if (len < 0.004) return
+      if (d.kind === 'line') {
+        setVideoAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'line',
+            x1: d.x1,
+            y1: d.y1,
+            x2: d.x2,
+            y2: d.y2,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+      } else {
+        setVideoAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'arrow',
+            x1: d.x1,
+            y1: d.y1,
+            x2: d.x2,
+            y2: d.y2,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+      }
+    },
+    [],
+  )
+
+  const seekVideoBySeconds = useCallback((deltaSeconds: number) => {
+    const videoEl = videoRef.current
+    if (!videoEl) return
+    const duration = Number.isFinite(videoEl.duration)
+      ? videoEl.duration
+      : Number.POSITIVE_INFINITY
+    const target = clamp(videoEl.currentTime + deltaSeconds, 0, duration)
+    videoEl.currentTime = target
+  }, [])
+
+  const toggleVideoPlayback = useCallback(() => {
+    const videoEl = videoRef.current
+    if (!videoEl) return
+    if (videoEl.paused || videoEl.ended) {
+      void videoEl.play()
+    } else {
+      videoEl.pause()
+    }
+  }, [])
+
+  const handleVideoTimelineChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const nextTime = Number(e.target.value)
+      const bounded = clamp(nextTime, 0, videoDuration || 0)
+      const videoEl = videoRef.current
+      if (!videoEl) return
+      videoEl.currentTime = bounded
+      setVideoCurrentTime(bounded)
+    },
+    [videoDuration],
+  )
+
+  const handleVideoTimelineInput = useCallback(
+    (e: React.FormEvent<HTMLInputElement>) => {
+      const nextTime = Number(e.currentTarget.value)
+      const bounded = clamp(nextTime, 0, videoDuration || 0)
+      const videoEl = videoRef.current
+      if (!videoEl) return
+      videoEl.currentTime = bounded
+      setVideoCurrentTime(bounded)
+    },
+    [videoDuration],
+  )
+
+  const handleVideoSvgPointerDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (videoAnnotateTool === 'move') return
+      e.stopPropagation()
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault()
+      }
+      const hostEl = videoFieldRef.current
+      if (!hostEl) return
+      const rect = hostEl.getBoundingClientRect()
+      const x = clamp01((e.clientX - rect.left) / rect.width)
+      const y = clamp01((e.clientY - rect.top) / rect.height)
+
+      if (videoAnnotateTool === 'erase') {
+        const id = hitTestAnnotation(videoAnnotations, x, y)
+        if (id) {
+          setVideoAnnotations((prev) => prev.filter((a) => a.id !== id))
+        }
+        return
+      }
+
+      const svgEl = e.currentTarget
+      const tool = videoAnnotateTool
+      if (tool === 'line' || tool === 'arrow') {
+        const draft: AnnotationDraft = {
+          kind: tool,
+          x1: x,
+          y1: y,
+          x2: x,
+          y2: y,
+        }
+        videoAnnotationDraftRef.current = draft
+        setVideoAnnotationDraft(draft)
+      } else {
+        const draft: AnnotationDraft = { kind: 'circle', cx: x, cy: y, r: 0 }
+        videoAnnotationDraftRef.current = draft
+        setVideoAnnotationDraft(draft)
+      }
+
+      const pid = e.pointerId
+      const colorAtStart = annotationColor
+      const strokeAtStart = strokeLevel
+      try {
+        svgEl.setPointerCapture(pid)
+      } catch {
+        // ignore if capture unsupported
+      }
+
+      const moveOpts: AddEventListenerOptions = { passive: false }
+      function move(ev: PointerEvent) {
+        if (ev.pointerId !== pid) return
+        if (ev.pointerType === 'touch') ev.preventDefault()
+        const el = videoFieldRef.current
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const nx = clamp01((ev.clientX - r.left) / r.width)
+        const ny = clamp01((ev.clientY - r.top) / r.height)
+        const prev = videoAnnotationDraftRef.current
+        if (!prev) return
+        let next: AnnotationDraft
+        if (prev.kind === 'circle') {
+          const rad = Math.hypot(nx - prev.cx, ny - prev.cy)
+          next = { ...prev, r: rad }
+        } else {
+          next = { ...prev, x2: nx, y2: ny }
+        }
+        videoAnnotationDraftRef.current = next
+        setVideoAnnotationDraft(next)
+      }
+
+      function up(ev: PointerEvent) {
+        if (ev.pointerId !== pid) return
+        window.removeEventListener('pointermove', move, moveOpts)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        try {
+          if (svgEl.hasPointerCapture(pid)) svgEl.releasePointerCapture(pid)
+        } catch {
+          // ignore
+        }
+        const final = videoAnnotationDraftRef.current
+        videoAnnotationDraftRef.current = null
+        setVideoAnnotationDraft(null)
+        if (final) {
+          commitVideoAnnotation(final, colorAtStart, strokeAtStart)
+        }
+      }
+
+      window.addEventListener('pointermove', move, moveOpts)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    [
+      annotationColor,
+      commitVideoAnnotation,
+      strokeLevel,
+      videoAnnotateTool,
+      videoAnnotations,
+    ],
+  )
+
+  const handleFieldPointerDownCapture = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (annotateTool !== 'move') return
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      if (annotationDragRef.current) return
+
+      const fieldEl = fieldRef.current
+      if (!fieldEl) return
+      const rect = fieldEl.getBoundingClientRect()
+      const x = clamp01((e.clientX - rect.left) / rect.width)
+      const y = clamp01((e.clientY - rect.top) / rect.height)
+      const id = hitTestAnnotation(annotations, x, y)
+      if (!id) return
+
+      const startAnnotation = annotations.find((a) => a.id === id)
+      if (!startAnnotation) return
+
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault()
+      }
+      e.stopPropagation()
+
+      const hostEl = e.currentTarget
+      const drag: AnnotationDragState = {
+        annotationId: id,
+        pointerId: e.pointerId,
+        startPointer: { x, y },
+        startAnnotation,
+        hostEl,
+      }
+      annotationDragRef.current = drag
+
+      try {
+        hostEl.setPointerCapture(e.pointerId)
+      } catch {
+        // ignore if pointer capture unsupported
+      }
+
+      const moveOpts: AddEventListenerOptions = { passive: false }
+
+      function move(ev: PointerEvent) {
+        const current = annotationDragRef.current
+        if (!current || ev.pointerId !== current.pointerId) return
+        if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+          ev.preventDefault()
+        }
+
+        const el = fieldRef.current
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const nx = clamp01((ev.clientX - r.left) / r.width)
+        const ny = clamp01((ev.clientY - r.top) / r.height)
+        const dx = nx - current.startPointer.x
+        const dy = ny - current.startPointer.y
+
+        setAnnotations((prev) =>
+          prev.map((a) =>
+            a.id === current.annotationId ? offsetAnnotation(current.startAnnotation, dx, dy) : a,
+          ),
+        )
+      }
+
+      function end(ev: PointerEvent) {
+        const current = annotationDragRef.current
+        if (!current || ev.pointerId !== current.pointerId) return
+        window.removeEventListener('pointermove', move, moveOpts)
+        window.removeEventListener('pointerup', end)
+        window.removeEventListener('pointercancel', end)
+        try {
+          if (current.hostEl.hasPointerCapture(current.pointerId)) {
+            current.hostEl.releasePointerCapture(current.pointerId)
+          }
+        } catch {
+          // ignore
+        }
+        annotationDragRef.current = null
+      }
+
+      window.addEventListener('pointermove', move, moveOpts)
+      window.addEventListener('pointerup', end)
+      window.addEventListener('pointercancel', end)
+    },
+    [annotateTool, annotations],
+  )
+
+  const handleVideoFieldPointerDownCapture = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (videoAnnotateTool !== 'move') return
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      if (videoAnnotationDragRef.current) return
+
+      const target = e.target as HTMLElement | null
+      if (target?.closest(`.${styles.videoControlsBar}`)) return
+
+      const host = videoFieldRef.current
+      if (!host) return
+      const rect = host.getBoundingClientRect()
+      const x = clamp01((e.clientX - rect.left) / rect.width)
+      const y = clamp01((e.clientY - rect.top) / rect.height)
+      const id = hitTestAnnotation(videoAnnotations, x, y)
+      if (!id) return
+
+      const startAnnotation = videoAnnotations.find((a) => a.id === id)
+      if (!startAnnotation) return
+
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault()
+      }
+      e.stopPropagation()
+
+      const hostEl = e.currentTarget
+      const drag: AnnotationDragState = {
+        annotationId: id,
+        pointerId: e.pointerId,
+        startPointer: { x, y },
+        startAnnotation,
+        hostEl,
+      }
+      videoAnnotationDragRef.current = drag
+
+      try {
+        hostEl.setPointerCapture(e.pointerId)
+      } catch {
+        // ignore if pointer capture unsupported
+      }
+
+      const moveOpts: AddEventListenerOptions = { passive: false }
+      function move(ev: PointerEvent) {
+        const current = videoAnnotationDragRef.current
+        if (!current || ev.pointerId !== current.pointerId) return
+        if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+          ev.preventDefault()
+        }
+
+        const el = videoFieldRef.current
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const nx = clamp01((ev.clientX - r.left) / r.width)
+        const ny = clamp01((ev.clientY - r.top) / r.height)
+        const dx = nx - current.startPointer.x
+        const dy = ny - current.startPointer.y
+
+        setVideoAnnotations((prev) =>
+          prev.map((a) =>
+            a.id === current.annotationId ? offsetAnnotation(current.startAnnotation, dx, dy) : a,
+          ),
+        )
+      }
+
+      function end(ev: PointerEvent) {
+        const current = videoAnnotationDragRef.current
+        if (!current || ev.pointerId !== current.pointerId) return
+        window.removeEventListener('pointermove', move, moveOpts)
+        window.removeEventListener('pointerup', end)
+        window.removeEventListener('pointercancel', end)
+        try {
+          if (current.hostEl.hasPointerCapture(current.pointerId)) {
+            current.hostEl.releasePointerCapture(current.pointerId)
+          }
+        } catch {
+          // ignore
+        }
+        videoAnnotationDragRef.current = null
+      }
+
+      window.addEventListener('pointermove', move, moveOpts)
+      window.addEventListener('pointerup', end)
+      window.addEventListener('pointercancel', end)
+    },
+    [videoAnnotateTool, videoAnnotations],
+  )
+
+  useEffect(() => {
+    const def = DEFAULT_FORMATION[teamSize]
+    setOffenseFormation(def)
+    setDefenseFormation(def)
+    setHighlightedPlayerIds(new Set())
+    setPieces((prev) => {
+      const ballPrev = prev.find((p) => p.id === 'ball')
+      const next = mergeNamesOntoPieces(
+        buildPieces(teamSize, def, def, gkOverrides),
+        playerNamesRef.current,
+      )
+      if (ballPrev) {
+        return next.map((p) =>
+          p.id === 'ball' ? { ...p, pos: ballPrev.pos } : p,
+        )
+      }
+      return next
+    })
+  }, [teamSize])
+
+  const togglePlayerHighlight = useCallback((pieceId: PieceId) => {
+    if (pieceId === 'ball') return
+    setHighlightedPlayerIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(pieceId)) next.delete(pieceId)
+      else next.add(pieceId)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const moveOpts: AddEventListenerOptions = { passive: false }
+
+    function onPointerMove(e: PointerEvent) {
+      const pending = pendingDragRef.current
+      if (pending && e.pointerId === pending.pointerId) {
+        const moved = Math.hypot(
+          e.clientX - pending.startClientX,
+          e.clientY - pending.startClientY,
+        )
+        if (moved > DRAG_THRESHOLD_PX) {
+          const target = pending.target
+          dragRef.current = {
+            pieceId: pending.pieceId,
+            pointerId: pending.pointerId,
+            pointerOffsetPx: pending.pointerOffsetPx,
+            pieceSizePx: pending.pieceSizePx,
+          }
+          pendingDragRef.current = null
+          try {
+            target.setPointerCapture(e.pointerId)
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const drag = dragRef.current
+      if (!drag) return
+      if (e.pointerId !== drag.pointerId) return
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') e.preventDefault()
+
+      const field = fieldRef.current
+      if (!field) return
+
+      const rect = field.getBoundingClientRect()
+
+      const rawX = e.clientX - rect.left - drag.pointerOffsetPx.x
+      const rawY = e.clientY - rect.top - drag.pointerOffsetPx.y
+
+      const piece = pieceById.get(drag.pieceId)
+      if (!piece) return
+
+      const widthPx = drag.pieceSizePx.width
+      const heightPx = drag.pieceSizePx.height
+
+      const xPx = clamp(rawX, 0, rect.width - widthPx)
+      const yPx = clamp(rawY, 0, rect.height - heightPx)
+
+      const x = clamp01(xPx / rect.width)
+      const y = clamp01(yPx / rect.height)
+
+      setPieces((prev) =>
+        prev.map((p) => (p.id === drag.pieceId ? { ...p, pos: { x, y } } : p)),
+      )
+    }
+
+    function endDrag(e: PointerEvent) {
+      const pending = pendingDragRef.current
+      if (pending && e.pointerId === pending.pointerId) {
+        const moved = Math.hypot(
+          e.clientX - pending.startClientX,
+          e.clientY - pending.startClientY,
+        )
+        if (moved <= DRAG_THRESHOLD_PX) {
+          if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+            const now = Date.now()
+            const last = lastTouchTapRef.current
+            if (
+              last &&
+              last.pieceId === pending.pieceId &&
+              now - last.time < DOUBLE_TAP_MS
+            ) {
+              togglePlayerHighlight(pending.pieceId)
+              lastTouchTapRef.current = null
+            } else {
+              lastTouchTapRef.current = {
+                pieceId: pending.pieceId,
+                time: now,
+              }
+            }
+          }
+        }
+        pendingDragRef.current = null
+      }
+
+      const drag = dragRef.current
+      if (!drag) return
+      if (e.pointerId !== drag.pointerId) return
+
+      if (isGkPieceId(drag.pieceId)) {
+        const team = teamFromGkId(drag.pieceId)
+        const current = piecesRef.current.find((p) => p.id === drag.pieceId)
+        if (current) {
+          setGkOverrides((prev) => {
+            const next: GkOverrides = { ...prev, [team]: current.pos }
+            saveGkOverrides(next)
+            return next
+          })
+        }
+      }
+
+      dragRef.current = undefined
+    }
+
+    window.addEventListener('pointermove', onPointerMove, moveOpts)
+    window.addEventListener('pointerup', endDrag)
+    window.addEventListener('pointercancel', endDrag)
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove, moveOpts)
+      window.removeEventListener('pointerup', endDrag)
+      window.removeEventListener('pointercancel', endDrag)
+    }
+  }, [pieceById, togglePlayerHighlight])
+
+  function reset() {
+    setPieces((prev) => {
+      const ballPrev = prev.find((p) => p.id === 'ball')
+      const next = mergeNamesOntoPieces(
+        buildPieces(
+          teamSize,
+          offenseFormation,
+          defenseFormation,
+          gkOverrides,
+        ),
+        playerNamesRef.current,
+      )
+      if (ballPrev) {
+        return next.map((p) =>
+          p.id === 'ball' ? { ...p, pos: ballPrev.pos } : p,
+        )
+      }
+      return next
+    })
+  }
+
+  function handleCreatePlay() {
+    const snaps = snapshotPieces(piecesRef.current)
+    setIsRecording(true)
+    setDraftName('')
+    setDraftStart(snaps)
+    setDraftSteps([])
+    setLastSnapshot(snaps)
+    setSelectedPlayId(null)
+    setCurrentStepIndex(0)
+  }
+
+  function handleSaveStep() {
+    if (!isRecording || !lastSnapshot) return
+    const prevMap = snapshotsToMap(lastSnapshot)
+    const currentSnaps = snapshotPieces(piecesRef.current)
+    const movements: Movement[] = currentSnaps.map((snap) => {
+      const prev = prevMap.get(snap.id) ?? snap.pos
+      return { id: snap.id, from: prev, to: snap.pos }
+    })
+
+    setDraftSteps((prev) => [...prev, { movements }])
+    setLastSnapshot(currentSnaps)
+  }
+
+  function handleSavePlay() {
+    if (!isRecording || !draftStart) return
+    const name = draftName.trim() || `Play ${plays.length + 1}`
+
+    const play: SavedPlay = {
+      id: `${Date.now()}`,
+      name,
+      teamSize,
+      offenseFormation,
+      defenseFormation,
+      gkOverrides,
+      startPositions: draftStart,
+      steps: draftSteps,
+    }
+
+    setPlays((prev) => {
+      const next = [...prev, play]
+      savePlays(next)
+      return next
+    })
+
+    setIsRecording(false)
+    setDraftName('')
+    setDraftStart(null)
+    setDraftSteps([])
+    setLastSnapshot(null)
+    setSelectedPlayId(play.id)
+    setCurrentStepIndex(0)
+  }
+
+  function applyPlayStart(play: SavedPlay) {
+    // Ensure formations / team size match the play.
+    setTeamSize(play.teamSize)
+    setOffenseFormation(play.offenseFormation)
+    setDefenseFormation(play.defenseFormation)
+    setGkOverrides(play.gkOverrides)
+
+    const startMap = snapshotsToMap(play.startPositions)
+    setPieces((prev) =>
+      prev.map((p) => {
+        const pos = startMap.get(p.id)
+        return pos ? { ...p, pos } : p
+      }),
+    )
+  }
+
+  function handleSelectPlay(id: string) {
+    setIsRecording(false)
+    setIsPlaying(false)
+    if (animationRef.current != null) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+
+    setSelectedPlayId(id || null)
+    setCurrentStepIndex(0)
+    const play = plays.find((p) => p.id === id)
+    if (play) {
+      applyPlayStart(play)
+    }
+  }
+
+  function runStep(
+    play: SavedPlay,
+    stepIndex: number,
+    autoContinue: boolean,
+    direction: 'forward' | 'backward' = 'forward',
+  ) {
+    const step = play.steps[stepIndex]
+    if (!step) {
+      setIsPlaying(false)
+      return
+    }
+
+    const duration = 700
+    const startTime = performance.now()
+
+    function frame(now: number) {
+      const t = clamp01((now - startTime) / duration)
+      setPieces((prev) =>
+        prev.map((p) => {
+          const m = step.movements.find((mv) => mv.id === p.id)
+          if (!m) return p
+          const from = direction === 'forward' ? m.from : m.to
+          const to = direction === 'forward' ? m.to : m.from
+          const x = from.x + (to.x - from.x) * t
+          const y = from.y + (to.y - from.y) * t
+          return { ...p, pos: { x, y } }
+        }),
+      )
+
+      if (t < 1) {
+        animationRef.current = requestAnimationFrame(frame)
+      } else if (autoContinue && stepIndex + 1 < play.steps.length) {
+        setCurrentStepIndex(stepIndex + 1)
+        runStep(play, stepIndex + 1, true, 'forward')
+      } else {
+        setIsPlaying(false)
+      }
+    }
+
+    setIsPlaying(true)
+    animationRef.current = requestAnimationFrame(frame)
+  }
+
+  function handlePlayAll() {
+    const play = plays.find((p) => p.id === selectedPlayId)
+    if (!play || play.steps.length === 0) return
+    applyPlayStart(play)
+    setCurrentStepIndex(0)
+    runStep(play, 0, true, 'forward')
+  }
+
+  function handleReplay() {
+    const play = plays.find((p) => p.id === selectedPlayId)
+    if (!play) return
+
+    setIsPlaying(false)
+    if (animationRef.current != null) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+
+    applyPlayStart(play)
+    setCurrentStepIndex(0)
+  }
+
+  function handleNextStep() {
+    const play = plays.find((p) => p.id === selectedPlayId)
+    if (!play || play.steps.length === 0) return
+
+    const index = currentStepIndex
+    if (index >= play.steps.length) return
+
+    runStep(play, index, false, 'forward')
+    setCurrentStepIndex(index + 1)
+  }
+
+  function handlePrevStep() {
+    const play = plays.find((p) => p.id === selectedPlayId)
+    if (!play || play.steps.length === 0) return
+
+    const prevIndex = currentStepIndex - 1
+    if (prevIndex < 0) return
+
+    runStep(play, prevIndex, false, 'backward')
+    setCurrentStepIndex(prevIndex)
+  }
+
+  function onPiecePointerDown(e: React.PointerEvent, pieceId: PieceId) {
+    if (annotateTool !== 'move') return
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault()
+    }
+
+    const target = e.currentTarget as HTMLElement
+    const targetRect = target.getBoundingClientRect()
+
+    const offsetX = e.clientX - targetRect.left
+    const offsetY = e.clientY - targetRect.top
+
+    pendingDragRef.current = {
+      pieceId,
+      pointerId: e.pointerId,
+      pointerOffsetPx: { x: offsetX, y: offsetY },
+      pieceSizePx: {
+        width: targetRect.width,
+        height: targetRect.height,
+      },
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      target,
+    }
+  }
+
+  function triggerVideoPicker() {
+    videoFileInputRef.current?.click()
+  }
+
+  function handleVideoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current)
+    }
+    const objectUrl = URL.createObjectURL(file)
+    videoObjectUrlRef.current = objectUrl
+    setVideoSourceUrl(objectUrl)
+    setVideoFileName(file.name)
+    setIsVideoPlaying(false)
+    setVideoCurrentTime(0)
+    setVideoDuration(0)
+    setVideoAnnotations([])
+    setVideoAnnotationDraft(null)
+    videoAnnotationDraftRef.current = null
+    e.currentTarget.value = ''
+  }
+
+  return (
+    <div
+      className={`${styles.wrapper} ${activeTab === 'playVideo' ? styles.wrapperVideoMode : ''}`}
+    >
+      <div className={styles.tabShell}>
+        <div
+          className={styles.tabList}
+          role="tablist"
+          aria-label="Soccer coach sections"
+        >
+          <button
+            type="button"
+            id="tab-team"
+            role="tab"
+            aria-selected={activeTab === 'team'}
+            aria-controls="panel-team"
+            tabIndex={activeTab === 'team' ? 0 : -1}
+            className={`${styles.tab} ${activeTab === 'team' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('team')}
+          >
+            Team Organization
+          </button>
+          <button
+            type="button"
+            id="tab-player-names"
+            role="tab"
+            aria-selected={activeTab === 'playerNames'}
+            aria-controls="panel-player-names"
+            tabIndex={activeTab === 'playerNames' ? 0 : -1}
+            className={`${styles.tab} ${activeTab === 'playerNames' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('playerNames')}
+          >
+            Player names
+          </button>
+          <button
+            type="button"
+            id="tab-recordings"
+            role="tab"
+            aria-selected={activeTab === 'recordings'}
+            aria-controls="panel-recordings"
+            tabIndex={activeTab === 'recordings' ? 0 : -1}
+            className={`${styles.tab} ${activeTab === 'recordings' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('recordings')}
+          >
+            Recordings
+          </button>
+          <button
+            type="button"
+            id="tab-annotations"
+            role="tab"
+            aria-selected={activeTab === 'annotations'}
+            aria-controls="panel-annotations"
+            tabIndex={activeTab === 'annotations' ? 0 : -1}
+            className={`${styles.tab} ${activeTab === 'annotations' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('annotations')}
+          >
+            Annotations
+          </button>
+          <button
+            type="button"
+            id="tab-play-video"
+            role="tab"
+            aria-selected={activeTab === 'playVideo'}
+            aria-controls="panel-play-video"
+            tabIndex={activeTab === 'playVideo' ? 0 : -1}
+            className={`${styles.tab} ${activeTab === 'playVideo' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('playVideo')}
+          >
+            Play Video
+          </button>
+        </div>
+
+        <div
+          id="panel-team"
+          role="tabpanel"
+          aria-labelledby="tab-team"
+          aria-hidden={activeTab !== 'team'}
+          className={`${styles.tabPanel} ${activeTab !== 'team' ? styles.tabPanelHidden : ''}`}
+        >
+          <div className={styles.tabPanelInner}>
+            <span className={styles.label}>Players per team</span>
+            <select
+              className={styles.select}
+              value={teamSize}
+              onChange={(e) => setTeamSize(Number(e.target.value) as 7 | 9 | 11)}
+              aria-label="Players per team"
+            >
+              <option value={7}>7</option>
+              <option value={9}>9</option>
+              <option value={11}>11</option>
+            </select>
+            <span className={styles.label}>Offense formation</span>
+            <select
+              className={styles.select}
+              value={
+                formationOptions.includes(offenseFormation)
+                  ? offenseFormation
+                  : DEFAULT_FORMATION[teamSize]
+              }
+              onChange={(e) => setOffenseFormation(e.target.value)}
+              aria-label="Offense formation"
+            >
+              {formationOptions.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <span className={styles.label}>Defense formation</span>
+            <select
+              className={styles.select}
+              value={
+                formationOptions.includes(defenseFormation)
+                  ? defenseFormation
+                  : DEFAULT_FORMATION[teamSize]
+              }
+              onChange={(e) => setDefenseFormation(e.target.value)}
+              aria-label="Defense formation"
+            >
+              {formationOptions.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <button className={styles.btn} onClick={reset}>
+              Reset positions
+            </button>
+
+            <span className={styles.legend}>
+              <span className={styles.legendSwatchOffense} /> Offense
+            </span>
+            <span className={styles.legend}>
+              <span className={styles.legendSwatchDefense} /> Defense
+            </span>
+            <span className={styles.legend}>
+              <span className={styles.legendSwatchBall} /> Ball
+            </span>
+          </div>
+        </div>
+
+        <div
+          id="panel-player-names"
+          role="tabpanel"
+          aria-labelledby="tab-player-names"
+          aria-hidden={activeTab !== 'playerNames'}
+          className={`${styles.tabPanel} ${activeTab !== 'playerNames' ? styles.tabPanelHidden : ''}`}
+        >
+          <div className={`${styles.tabPanelInner} ${styles.nameTabPanelInner}`}>
+            <div className={styles.nameSection}>
+              <div className={styles.nameSectionTitle}>Player names</div>
+              <p className={styles.nameSectionHint}>
+                Optional names appear under each jersey number on the field (saved on this device).
+              </p>
+              <div className={styles.nameColumns}>
+                <div>
+                  <div className={styles.nameColTitle}>Offense</div>
+                  {Array.from({ length: teamSize }, (_, i) => {
+                    const n = i + 1
+                    const id = `offense-${n}` as Exclude<PieceId, 'ball'>
+                    return (
+                      <label key={id} className={styles.nameRow}>
+                        <span className={styles.nameRowNum}>{n}</span>
+                        <input
+                          className={styles.nameInput}
+                          type="text"
+                          value={playerNames[id] ?? ''}
+                          placeholder="Name"
+                          maxLength={PLAYER_NAME_MAX}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setPlayerNames((prev) => {
+                              const next = { ...prev }
+                              if (!v.trim()) delete next[id]
+                              else next[id] = v
+                              return next
+                            })
+                          }}
+                          aria-label={`Offense player ${n} name`}
+                        />
+                      </label>
+                    )
+                  })}
+                </div>
+                <div>
+                  <div className={styles.nameColTitle}>Defense</div>
+                  {Array.from({ length: teamSize }, (_, i) => {
+                    const n = i + 1
+                    const id = `defense-${n}` as Exclude<PieceId, 'ball'>
+                    return (
+                      <label key={id} className={styles.nameRow}>
+                        <span className={styles.nameRowNum}>{n}</span>
+                        <input
+                          className={styles.nameInput}
+                          type="text"
+                          value={playerNames[id] ?? ''}
+                          placeholder="Name"
+                          maxLength={PLAYER_NAME_MAX}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setPlayerNames((prev) => {
+                              const next = { ...prev }
+                              if (!v.trim()) delete next[id]
+                              else next[id] = v
+                              return next
+                            })
+                          }}
+                          aria-label={`Defense player ${n} name`}
+                        />
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="panel-recordings"
+          role="tabpanel"
+          aria-labelledby="tab-recordings"
+          aria-hidden={activeTab !== 'recordings'}
+          className={`${styles.tabPanel} ${activeTab !== 'recordings' ? styles.tabPanelHidden : ''}`}
+        >
+          <div className={styles.tabPanelInner}>
+            {isRecording && (
+              <>
+                <span className={styles.label}>Play title</span>
+                <input
+                  className={styles.input}
+                  type="text"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  placeholder={`Play ${plays.length + 1}`}
+                />
+              </>
+            )}
+            <button
+              className={styles.btn}
+              onClick={handleCreatePlay}
+              disabled={isRecording}
+            >
+              Create play
+            </button>
+            <button
+              className={styles.btn}
+              onClick={handleSaveStep}
+              disabled={!isRecording}
+            >
+              Save step
+            </button>
+            <button
+              className={styles.btn}
+              onClick={handleSavePlay}
+              disabled={!isRecording}
+            >
+              Save play
+            </button>
+            <span className={styles.label}>Saved plays</span>
+            <select
+              className={styles.select}
+              value={selectedPlayId ?? ''}
+              onChange={(e) => handleSelectPlay(e.target.value)}
+              aria-label="Saved plays"
+            >
+              <option value="">None</option>
+              {plays.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className={styles.btn}
+              onClick={handlePlayAll}
+              disabled={!selectedPlayId || isPlaying}
+            >
+              Play all
+            </button>
+            <button
+              className={styles.btn}
+              onClick={handleReplay}
+              disabled={!selectedPlayId || isPlaying}
+            >
+              Restart
+            </button>
+            <button
+              className={styles.btn}
+              onClick={handlePrevStep}
+              disabled={!selectedPlayId || isPlaying}
+            >
+              Previous step
+            </button>
+            <button
+              className={styles.btn}
+              onClick={handleNextStep}
+              disabled={!selectedPlayId || isPlaying}
+            >
+              Next step
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="panel-annotations"
+          role="tabpanel"
+          aria-labelledby="tab-annotations"
+          aria-hidden={activeTab !== 'annotations'}
+          className={`${styles.tabPanel} ${activeTab !== 'annotations' ? styles.tabPanelHidden : ''}`}
+        >
+          <div className={styles.tabPanelInner}>
+            <div className={styles.toolGroup}>
+              {(
+                [
+                  ['move', 'Move'],
+                  ['line', 'Line'],
+                  ['circle', 'Circle'],
+                  ['arrow', 'Arrow'],
+                  ['erase', 'Erase'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`${styles.toolBtn} ${annotateTool === id ? styles.toolBtnActive : ''}`}
+                  onClick={() => setAnnotateTool(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className={styles.label}>Color</span>
+            <div className={styles.colorRow} aria-label="Annotation colors">
+              {ANNOTATION_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`${styles.colorSwatch} ${annotationColor === c ? styles.colorSwatchActive : ''}`}
+                  style={{ background: c }}
+                  onClick={() => setAnnotationColor(c)}
+                  aria-label={`Use color ${c}`}
+                  title={c}
+                />
+              ))}
+              <input
+                className={styles.colorPicker}
+                type="color"
+                value={
+                  /^#[0-9A-Fa-f]{6}$/.test(annotationColor)
+                    ? annotationColor
+                    : '#e11d48'
+                }
+                onChange={(e) => setAnnotationColor(e.target.value)}
+                aria-label="Custom color"
+              />
+            </div>
+            <span className={styles.label}>Thickness</span>
+            <input
+              className={styles.thicknessRange}
+              type="range"
+              min={1}
+              max={16}
+              value={strokeLevel}
+              onChange={(e) => setStrokeLevel(Number(e.target.value))}
+              aria-label="Line thickness"
+            />
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={() => setAnnotations([])}
+              disabled={annotations.length === 0}
+            >
+              Clear drawings
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="panel-play-video"
+          role="tabpanel"
+          aria-labelledby="tab-play-video"
+          aria-hidden={activeTab !== 'playVideo'}
+          className={`${styles.tabPanel} ${activeTab !== 'playVideo' ? styles.tabPanelHidden : ''}`}
+        >
+          <div className={`${styles.tabPanelInner} ${styles.videoTabPanelInner}`}>
+            <button type="button" className={styles.btn} onClick={triggerVideoPicker}>
+              Upload video
+            </button>
+            <input
+              ref={videoFileInputRef}
+              type="file"
+              accept="video/*"
+              className={styles.videoFileInput}
+              onChange={handleVideoFileSelected}
+            />
+            <span className={styles.label}>
+              {videoFileName ? `Loaded: ${videoFileName}` : 'No video selected'}
+            </span>
+            <div className={styles.toolGroup}>
+              {(
+                [
+                  ['move', 'Move'],
+                  ['line', 'Line'],
+                  ['circle', 'Circle'],
+                  ['arrow', 'Arrow'],
+                  ['erase', 'Erase'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`${styles.toolBtn} ${videoAnnotateTool === id ? styles.toolBtnActive : ''}`}
+                  onClick={() => setVideoAnnotateTool(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className={styles.label}>Color</span>
+            <div className={styles.colorRow} aria-label="Video annotation colors">
+              {ANNOTATION_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`${styles.colorSwatch} ${annotationColor === c ? styles.colorSwatchActive : ''}`}
+                  style={{ background: c }}
+                  onClick={() => setAnnotationColor(c)}
+                  aria-label={`Use color ${c}`}
+                  title={c}
+                />
+              ))}
+              <input
+                className={styles.colorPicker}
+                type="color"
+                value={
+                  /^#[0-9A-Fa-f]{6}$/.test(annotationColor)
+                    ? annotationColor
+                    : '#e11d48'
+                }
+                onChange={(e) => setAnnotationColor(e.target.value)}
+                aria-label="Custom color"
+              />
+            </div>
+            <span className={styles.label}>Thickness</span>
+            <input
+              className={styles.thicknessRange}
+              type="range"
+              min={1}
+              max={16}
+              value={strokeLevel}
+              onChange={(e) => setStrokeLevel(Number(e.target.value))}
+              aria-label="Line thickness"
+            />
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={() => setVideoAnnotations([])}
+              disabled={videoAnnotations.length === 0}
+            >
+              Clear markups
+            </button>
+          </div>
+        </div>
+      </div>
+      {activeTab === 'playVideo' ? (
+        <div className={styles.videoFieldOuter}>
+          <div
+            className={styles.videoField}
+            ref={videoFieldRef}
+            onPointerDownCapture={handleVideoFieldPointerDownCapture}
+          >
+            {videoSourceUrl ? (
+              <video
+                ref={videoRef}
+                className={styles.videoPlayer}
+                src={videoSourceUrl}
+                playsInline
+              />
+            ) : (
+              <div className={styles.videoPlaceholder}>
+                Upload a local video file (e.g. mp4) to start playback.
+              </div>
+            )}
+            {videoSourceUrl ? (
+              <div className={styles.videoControlsBar}>
+                <div className={styles.videoButtonsRow}>
+                  <button
+                    type="button"
+                    className={styles.videoControlBtn}
+                    onClick={() => seekVideoBySeconds(-10)}
+                  >
+                    -10s
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.videoControlBtn}
+                    onClick={toggleVideoPlayback}
+                  >
+                    {isVideoPlaying ? 'Pause' : 'Play'}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.videoControlBtn}
+                    onClick={() => seekVideoBySeconds(10)}
+                  >
+                    +10s
+                  </button>
+                </div>
+                <div className={styles.videoTimelineRow}>
+                  <span className={styles.videoTimeText}>
+                    {formatMediaTime(videoCurrentTime)}
+                  </span>
+                  <input
+                    type="range"
+                    className={styles.videoTimeline}
+                    min={0}
+                    max={Math.max(videoDuration, 0.001)}
+                    step={0.1}
+                    value={Math.min(videoCurrentTime, Math.max(videoDuration, 0.001))}
+                    onInput={handleVideoTimelineInput}
+                    onChange={handleVideoTimelineChange}
+                    disabled={videoDuration <= 0}
+                    aria-label="Video timeline"
+                  />
+                  <span className={styles.videoTimeText}>
+                    {formatMediaTime(videoDuration)}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            <svg
+              className={`${styles.annotationSvg} ${videoAnnotateTool !== 'move' ? styles.annotationSvgInteractive : ''} ${videoAnnotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
+              viewBox="0 0 1 1"
+              preserveAspectRatio="none"
+              aria-hidden={videoAnnotateTool === 'move'}
+              onPointerDown={handleVideoSvgPointerDown}
+            >
+              {videoAnnotations.map((a) => {
+                const sw = strokeLevelToSvgWidth(a.strokeLevel)
+                if (a.kind === 'line') {
+                  return (
+                    <line
+                      key={a.id}
+                      x1={a.x1}
+                      y1={a.y1}
+                      x2={a.x2}
+                      y2={a.y2}
+                      stroke={a.color}
+                      strokeWidth={sw}
+                      strokeLinecap="round"
+                    />
+                  )
+                }
+                if (a.kind === 'circle') {
+                  return (
+                    <circle
+                      key={a.id}
+                      cx={a.cx}
+                      cy={a.cy}
+                      r={a.r}
+                      fill="none"
+                      stroke={a.color}
+                      strokeWidth={sw}
+                    />
+                  )
+                }
+                const head = Math.max(0.012, sw * 5)
+                const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
+                const lx2 = a.x2 - head * Math.cos(ang)
+                const ly2 = a.y2 - head * Math.sin(ang)
+                return (
+                  <g key={a.id}>
+                    <line
+                      x1={a.x1}
+                      y1={a.y1}
+                      x2={lx2}
+                      y2={ly2}
+                      stroke={a.color}
+                      strokeWidth={sw}
+                      strokeLinecap="round"
+                    />
+                    <polygon
+                      points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
+                      fill={a.color}
+                    />
+                  </g>
+                )
+              })}
+              {videoAnnotationDraft &&
+                (videoAnnotationDraft.kind === 'circle' ? (
+                  <circle
+                    cx={videoAnnotationDraft.cx}
+                    cy={videoAnnotationDraft.cy}
+                    r={videoAnnotationDraft.r}
+                    fill="none"
+                    stroke={annotationColor}
+                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                    opacity={0.88}
+                  />
+                ) : videoAnnotationDraft.kind === 'line' ? (
+                  <line
+                    x1={videoAnnotationDraft.x1}
+                    y1={videoAnnotationDraft.y1}
+                    x2={videoAnnotationDraft.x2}
+                    y2={videoAnnotationDraft.y2}
+                    stroke={annotationColor}
+                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                    strokeLinecap="round"
+                    opacity={0.88}
+                  />
+                ) : (
+                  (() => {
+                    const d = videoAnnotationDraft
+                    const sw = strokeLevelToSvgWidth(strokeLevel)
+                    const head = Math.max(0.012, sw * 5)
+                    const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
+                    const lx2 = d.x2 - head * Math.cos(ang)
+                    const ly2 = d.y2 - head * Math.sin(ang)
+                    return (
+                      <g opacity={0.88}>
+                        <line
+                          x1={d.x1}
+                          y1={d.y1}
+                          x2={lx2}
+                          y2={ly2}
+                          stroke={annotationColor}
+                          strokeWidth={sw}
+                          strokeLinecap="round"
+                        />
+                        <polygon
+                          points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
+                          fill={annotationColor}
+                        />
+                      </g>
+                    )
+                  })()
+                ))}
+            </svg>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.fieldOuter}>
+          <div
+            className={styles.field}
+            ref={fieldRef}
+            onPointerDownCapture={handleFieldPointerDownCapture}
+          >
+          <div className={styles.pitchLines} aria-hidden="true" />
+          <div className={styles.penaltyBoxLeft} aria-hidden="true" />
+          <div className={styles.penaltyBoxRight} aria-hidden="true" />
+          <div className={styles.goalLeft} aria-hidden="true" />
+          <div className={styles.goalRight} aria-hidden="true" />
+
+          {pieces.map((p) => {
+            const left = `${p.pos.x * 100}%`
+            const top = `${p.pos.y * 100}%`
+
+            if (p.type === 'ball') {
+              return (
+                <div
+                  key={p.id}
+                  className={styles.ball}
+                  style={{ left, top }}
+                  role="button"
+                  tabIndex={0}
+                  onPointerDown={(e) => onPiecePointerDown(e, p.id)}
+                  aria-label="Ball"
+                />
+              )
+            }
+
+            const cls =
+              p.team === 'offense' ? styles.playerOffense : styles.playerDefense
+            const isHighlighted = highlightedPlayerIds.has(p.id)
+
+            const ariaPlayer = p.name
+              ? `${p.team} player ${p.label}, ${p.name}`
+              : `${p.team} player ${p.label}`
+
+            return (
+              <div
+                key={p.id}
+                className={styles.playerWrap}
+                style={{ left, top }}
+              >
+                <div
+                  className={`${styles.player} ${cls} ${isHighlighted ? styles.playerHighlighted : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isHighlighted}
+                  onPointerDown={(e) => onPiecePointerDown(e, p.id)}
+                  onDoubleClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (annotateTool !== 'move') return
+                    togglePlayerHighlight(p.id)
+                  }}
+                  aria-label={ariaPlayer}
+                >
+                  {p.label}
+                </div>
+                {p.name ? (
+                  <div className={styles.playerNameTag} title={p.name}>
+                    {p.name}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+
+          <svg
+            className={`${styles.annotationSvg} ${annotateTool !== 'move' ? styles.annotationSvgInteractive : ''} ${annotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
+            viewBox="0 0 1 1"
+            preserveAspectRatio="none"
+            aria-hidden={annotateTool === 'move'}
+            onPointerDown={handleSvgPointerDown}
+          >
+            {annotations.map((a) => {
+              const sw = strokeLevelToSvgWidth(a.strokeLevel)
+              if (a.kind === 'line') {
+                return (
+                  <line
+                    key={a.id}
+                    x1={a.x1}
+                    y1={a.y1}
+                    x2={a.x2}
+                    y2={a.y2}
+                    stroke={a.color}
+                    strokeWidth={sw}
+                    strokeLinecap="round"
+                  />
+                )
+              }
+              if (a.kind === 'circle') {
+                return (
+                  <circle
+                    key={a.id}
+                    cx={a.cx}
+                    cy={a.cy}
+                    r={a.r}
+                    fill="none"
+                    stroke={a.color}
+                    strokeWidth={sw}
+                  />
+                )
+              }
+              const head = Math.max(0.012, sw * 5)
+              const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
+              const lx2 = a.x2 - head * Math.cos(ang)
+              const ly2 = a.y2 - head * Math.sin(ang)
+              return (
+                <g key={a.id}>
+                  <line
+                    x1={a.x1}
+                    y1={a.y1}
+                    x2={lx2}
+                    y2={ly2}
+                    stroke={a.color}
+                    strokeWidth={sw}
+                    strokeLinecap="round"
+                  />
+                  <polygon
+                    points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
+                    fill={a.color}
+                  />
+                </g>
+              )
+            })}
+            {annotationDraft &&
+              (annotationDraft.kind === 'circle' ? (
+                <circle
+                  cx={annotationDraft.cx}
+                  cy={annotationDraft.cy}
+                  r={annotationDraft.r}
+                  fill="none"
+                  stroke={annotationColor}
+                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                  opacity={0.88}
+                />
+              ) : annotationDraft.kind === 'line' ? (
+                <line
+                  x1={annotationDraft.x1}
+                  y1={annotationDraft.y1}
+                  x2={annotationDraft.x2}
+                  y2={annotationDraft.y2}
+                  stroke={annotationColor}
+                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                  strokeLinecap="round"
+                  opacity={0.88}
+                />
+              ) : (
+                (() => {
+                  const d = annotationDraft
+                  const sw = strokeLevelToSvgWidth(strokeLevel)
+                  const head = Math.max(0.012, sw * 5)
+                  const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
+                  const lx2 = d.x2 - head * Math.cos(ang)
+                  const ly2 = d.y2 - head * Math.sin(ang)
+                  return (
+                    <g opacity={0.88}>
+                      <line
+                        x1={d.x1}
+                        y1={d.y1}
+                        x2={lx2}
+                        y2={ly2}
+                        stroke={annotationColor}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                      />
+                      <polygon
+                        points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
+                        fill={annotationColor}
+                      />
+                    </g>
+                  )
+                })()
+              ))}
+          </svg>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
