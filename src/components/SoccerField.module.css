@@ -423,6 +423,12 @@
   vertical-align: middle;
 }
 
+.videoThicknessRange {
+  width: 82px;
+  flex: 0 0 82px;
+  max-width: 82px;
+}
+
 .videoFileInput {
   display: none;
 }
@@ -842,6 +848,11 @@
     width: 100%;
     flex: none;
     max-width: none;
+  }
+
+  .videoThicknessRange {
+    width: min(82px, 100%);
+    max-width: 100%;
   }
 
   .videoTabPanelInner {

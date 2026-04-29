@@ -76,6 +76,22 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n))
 }
 
+function isPenEraserInput(pointerType: string, button: number, buttons: number) {
+  if (pointerType !== 'pen') return false
+  return button === 5 || (buttons & 32) === 32
+}
+
+function pressureToStrokeLevel(pressure: number, fallback: number) {
+  if (!Number.isFinite(pressure) || pressure <= 0) return fallback
+  const normalized = clamp(pressure, 0, 1)
+  const curved = Math.pow(normalized, 0.65)
+  return Math.round(clamp(1 + curved * 15, 1, 16))
+}
+
+function blendStrokeLevel(current: number, next: number) {
+  return Math.round(clamp(current * 0.65 + next * 0.35, 1, 16))
+}
+
 function formatMediaTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
   const whole = Math.floor(seconds)
@@ -86,6 +102,12 @@ function formatMediaTime(seconds: number): string {
     return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
   return `${mins}:${String(secs).padStart(2, '0')}`
+}
+
+function truncateLabel(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  if (maxChars <= 1) return text.slice(0, maxChars)
+  return `${text.slice(0, maxChars - 1)}…`
 }
 
 function offsetAnnotation(
@@ -419,6 +441,16 @@ type AnnotationDragState = {
 const DRAG_THRESHOLD_PX = 6
 const DOUBLE_TAP_MS = 420
 const VIDEO_PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
+const VIDEO_MARKUP_COLORS = ['red', 'blue', 'yellow', 'white', 'black'] as const
+
+type VideoMarkupColor = (typeof VIDEO_MARKUP_COLORS)[number]
+
+function toVideoMarkupColor(color: string): VideoMarkupColor {
+  if ((VIDEO_MARKUP_COLORS as readonly string[]).includes(color)) {
+    return color as VideoMarkupColor
+  }
+  return 'red'
+}
 
 export type SoccerFieldTab =
   | 'team'
@@ -509,6 +541,21 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1)
+  const activeVideoMarkupColor = toVideoMarkupColor(annotationColor)
+  const activePenPointersRef = useRef<Set<number>>(new Set())
+
+  function beginPenSession(pointerId: number, pointerType: string) {
+    if (pointerType !== 'pen') return
+    activePenPointersRef.current.add(pointerId)
+  }
+
+  function endPenSession(pointerId: number) {
+    activePenPointersRef.current.delete(pointerId)
+  }
+
+  function shouldIgnoreTouch(pointerType: string) {
+    return pointerType === 'touch' && activePenPointersRef.current.size > 0
+  }
 
   const formationOptions = FORMATIONS_BY_SIZE[teamSize]
 
@@ -555,6 +602,34 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         URL.revokeObjectURL(videoObjectUrlRef.current)
         videoObjectUrlRef.current = null
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    function onPointerEnd(e: PointerEvent) {
+      if (e.pointerType !== 'pen') return
+      activePenPointersRef.current.delete(e.pointerId)
+    }
+
+    function clearAllPenSessions() {
+      activePenPointersRef.current.clear()
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible') {
+        clearAllPenSessions()
+      }
+    }
+
+    window.addEventListener('pointerup', onPointerEnd)
+    window.addEventListener('pointercancel', onPointerEnd)
+    window.addEventListener('blur', clearAllPenSessions)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('pointerup', onPointerEnd)
+      window.removeEventListener('pointercancel', onPointerEnd)
+      window.removeEventListener('blur', clearAllPenSessions)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
 
@@ -660,6 +735,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const handleSvgPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       if (annotateTool === 'move') return
+      if (shouldIgnoreTouch(e.pointerType)) return
       e.stopPropagation()
       if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         e.preventDefault()
@@ -669,8 +745,9 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       const rect = fieldEl.getBoundingClientRect()
       const x = clamp01((e.clientX - rect.left) / rect.width)
       const y = clamp01((e.clientY - rect.top) / rect.height)
+      const useEraser = annotateTool === 'erase' || isPenEraserInput(e.pointerType, e.button, e.buttons)
 
-      if (annotateTool === 'erase') {
+      if (useEraser) {
         const id = hitTestAnnotation(annotations, x, y)
         if (id) {
           setAnnotations((prev) => prev.filter((a) => a.id !== id))
@@ -699,7 +776,11 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
       const pid = e.pointerId
       const colorAtStart = annotationColor
-      const strokeAtStart = strokeLevel
+      let strokeAtStart =
+        e.pointerType === 'pen'
+          ? pressureToStrokeLevel(e.pressure, strokeLevel)
+          : strokeLevel
+      beginPenSession(pid, e.pointerType)
 
       try {
         svgEl.setPointerCapture(pid)
@@ -711,7 +792,11 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
       function move(ev: PointerEvent) {
         if (ev.pointerId !== pid) return
-        if (ev.pointerType === 'touch') ev.preventDefault()
+        if (ev.pointerType === 'touch' || ev.pointerType === 'pen') ev.preventDefault()
+        if (ev.pointerType === 'pen') {
+          const penLevel = pressureToStrokeLevel(ev.pressure, strokeAtStart)
+          strokeAtStart = blendStrokeLevel(strokeAtStart, penLevel)
+        }
         const el = fieldRef.current
         if (!el) return
         const r = el.getBoundingClientRect()
@@ -732,6 +817,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
       function up(ev: PointerEvent) {
         if (ev.pointerId !== pid) return
+        endPenSession(pid)
         window.removeEventListener('pointermove', move, moveOpts)
         window.removeEventListener('pointerup', up)
         window.removeEventListener('pointercancel', up)
@@ -868,6 +954,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const handleVideoSvgPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       if (videoAnnotateTool === 'move') return
+      if (shouldIgnoreTouch(e.pointerType)) return
       e.stopPropagation()
       if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         e.preventDefault()
@@ -877,8 +964,10 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       const rect = hostEl.getBoundingClientRect()
       const x = clamp01((e.clientX - rect.left) / rect.width)
       const y = clamp01((e.clientY - rect.top) / rect.height)
+      const useEraser =
+        videoAnnotateTool === 'erase' || isPenEraserInput(e.pointerType, e.button, e.buttons)
 
-      if (videoAnnotateTool === 'erase') {
+      if (useEraser) {
         const id = hitTestAnnotation(videoAnnotations, x, y)
         if (id) {
           setVideoAnnotations((prev) => prev.filter((a) => a.id !== id))
@@ -905,9 +994,13 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       }
 
       const pid = e.pointerId
-      const colorAtStart = annotationColor
-      const strokeAtStart = strokeLevel
+      const colorAtStart = activeVideoMarkupColor
+      let strokeAtStart =
+        e.pointerType === 'pen'
+          ? pressureToStrokeLevel(e.pressure, strokeLevel)
+          : strokeLevel
       let isActive = true
+      beginPenSession(pid, e.pointerType)
       try {
         svgEl.setPointerCapture(pid)
       } catch {
@@ -919,6 +1012,10 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         if (!isActive) return
         if (ev.pointerId !== pid) return
         if (ev.pointerType === 'touch' || ev.pointerType === 'pen') ev.preventDefault()
+        if (ev.pointerType === 'pen') {
+          const penLevel = pressureToStrokeLevel(ev.pressure, strokeAtStart)
+          strokeAtStart = blendStrokeLevel(strokeAtStart, penLevel)
+        }
         const el = videoFieldRef.current
         if (!el) return
         const r = el.getBoundingClientRect()
@@ -949,6 +1046,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       function finalizeSession() {
         if (!isActive) return
         isActive = false
+        endPenSession(pid)
         cleanupSession()
         try {
           if (svgEl.hasPointerCapture(pid)) svgEl.releasePointerCapture(pid)
@@ -966,6 +1064,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       function cancelSession() {
         if (!isActive) return
         isActive = false
+        endPenSession(pid)
         cleanupSession()
         try {
           if (svgEl.hasPointerCapture(pid)) svgEl.releasePointerCapture(pid)
@@ -1012,7 +1111,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       svgEl.addEventListener('lostpointercapture', cancelFromCaptureLoss)
     },
     [
-      annotationColor,
+      activeVideoMarkupColor,
       commitVideoAnnotation,
       strokeLevel,
       videoAnnotateTool,
@@ -1022,6 +1121,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
   const handleFieldPointerDownCapture = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      if (shouldIgnoreTouch(e.pointerType)) return
       if (annotateTool !== 'move') return
       if (e.button !== 0 && e.pointerType === 'mouse') return
       if (annotationDragRef.current) return
@@ -1031,6 +1131,15 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       const rect = fieldEl.getBoundingClientRect()
       const x = clamp01((e.clientX - rect.left) / rect.width)
       const y = clamp01((e.clientY - rect.top) / rect.height)
+
+      if (isPenEraserInput(e.pointerType, e.button, e.buttons)) {
+        const id = hitTestAnnotation(annotations, x, y)
+        if (id) {
+          setAnnotations((prev) => prev.filter((a) => a.id !== id))
+        }
+        return
+      }
+
       const id = hitTestAnnotation(annotations, x, y)
       if (!id) return
 
@@ -1051,6 +1160,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         hostEl,
       }
       annotationDragRef.current = drag
+      beginPenSession(e.pointerId, e.pointerType)
 
       try {
         hostEl.setPointerCapture(e.pointerId)
@@ -1085,6 +1195,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       function end(ev: PointerEvent) {
         const current = annotationDragRef.current
         if (!current || ev.pointerId !== current.pointerId) return
+        endPenSession(current.pointerId)
         window.removeEventListener('pointermove', move, moveOpts)
         window.removeEventListener('pointerup', end)
         window.removeEventListener('pointercancel', end)
@@ -1107,6 +1218,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
   const handleVideoFieldPointerDownCapture = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      if (shouldIgnoreTouch(e.pointerType)) return
       if (videoAnnotateTool !== 'move') return
       if (e.button !== 0 && e.pointerType === 'mouse') return
       if (videoAnnotationDragRef.current) return
@@ -1119,6 +1231,15 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       const rect = host.getBoundingClientRect()
       const x = clamp01((e.clientX - rect.left) / rect.width)
       const y = clamp01((e.clientY - rect.top) / rect.height)
+
+      if (isPenEraserInput(e.pointerType, e.button, e.buttons)) {
+        const id = hitTestAnnotation(videoAnnotations, x, y)
+        if (id) {
+          setVideoAnnotations((prev) => prev.filter((a) => a.id !== id))
+        }
+        return
+      }
+
       const id = hitTestAnnotation(videoAnnotations, x, y)
       if (!id) return
 
@@ -1140,6 +1261,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       }
       videoAnnotationDragRef.current = drag
       let isActive = true
+      beginPenSession(e.pointerId, e.pointerType)
 
       try {
         hostEl.setPointerCapture(e.pointerId)
@@ -1185,6 +1307,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         const current = videoAnnotationDragRef.current
         if (!current || ev.pointerId !== current.pointerId) return
         isActive = false
+        endPenSession(current.pointerId)
         cleanupSession()
         try {
           if (current.hostEl.hasPointerCapture(current.pointerId)) {
@@ -1201,6 +1324,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         const current = videoAnnotationDragRef.current
         if (!current || ev.pointerId !== current.pointerId) return
         isActive = false
+        endPenSession(current.pointerId)
         cleanupSession()
         try {
           if (current.hostEl.hasPointerCapture(current.pointerId)) {
@@ -1220,6 +1344,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         const current = videoAnnotationDragRef.current
         if (!isActive || !current) return
         isActive = false
+        endPenSession(current.pointerId)
         cleanupSession()
         try {
           if (current.hostEl.hasPointerCapture(current.pointerId)) {
@@ -1281,6 +1406,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     const moveOpts: AddEventListenerOptions = { passive: false }
 
     function onPointerMove(e: PointerEvent) {
+      if (e.pointerType === 'touch' && activePenPointersRef.current.size > 0) return
       const pending = pendingDragRef.current
       if (pending && e.pointerId === pending.pointerId) {
         const moved = Math.hypot(
@@ -1335,6 +1461,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     }
 
     function endDrag(e: PointerEvent) {
+      endPenSession(e.pointerId)
       const pending = pendingDragRef.current
       if (pending && e.pointerId === pending.pointerId) {
         const moved = Math.hypot(
@@ -1589,7 +1716,9 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
   function onPiecePointerDown(e: React.PointerEvent, pieceId: PieceId) {
     if (annotateTool !== 'move') return
+    if (shouldIgnoreTouch(e.pointerType)) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
+    if (isPenEraserInput(e.pointerType, e.button, e.buttons)) return
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       e.preventDefault()
     }
@@ -1612,6 +1741,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
       startClientY: e.clientY,
       target,
     }
+    beginPenSession(e.pointerId, e.pointerType)
   }
 
   function triggerVideoPicker() {
@@ -2035,7 +2165,9 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
               onChange={handleVideoFileSelected}
             />
             <span className={styles.label}>
-              {videoFileName ? `Loaded: ${videoFileName}` : 'No video selected'}
+              {videoFileName
+                ? `Loaded: ${truncateLabel(videoFileName, 20)}`
+                : 'No video selected'}
             </span>
             <div className={styles.toolGroup}>
               {(
@@ -2059,32 +2191,21 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
             </div>
             <span className={styles.label}>Color</span>
             <div className={styles.colorRow} aria-label="Video annotation colors">
-              {ANNOTATION_COLORS.map((c) => (
+              {VIDEO_MARKUP_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
-                  className={`${styles.colorSwatch} ${annotationColor === c ? styles.colorSwatchActive : ''}`}
+                  className={`${styles.colorSwatch} ${activeVideoMarkupColor === c ? styles.colorSwatchActive : ''}`}
                   style={{ background: c }}
                   onClick={() => setAnnotationColor(c)}
                   aria-label={`Use color ${c}`}
                   title={c}
                 />
               ))}
-              <input
-                className={styles.colorPicker}
-                type="color"
-                value={
-                  /^#[0-9A-Fa-f]{6}$/.test(annotationColor)
-                    ? annotationColor
-                    : '#e11d48'
-                }
-                onChange={(e) => setAnnotationColor(e.target.value)}
-                aria-label="Custom color"
-              />
             </div>
             <span className={styles.label}>Thickness</span>
             <input
-              className={styles.thicknessRange}
+              className={`${styles.thicknessRange} ${styles.videoThicknessRange}`}
               type="range"
               min={1}
               max={16}
@@ -2146,24 +2267,24 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                   >
                     +10s
                   </button>
-                </div>
-                <div className={styles.videoSpeedRow}>
-                  <label className={styles.videoSpeedLabel} htmlFor="video-speed-select">
-                    Speed
-                  </label>
-                  <select
-                    id="video-speed-select"
-                    className={styles.videoSpeedSelect}
-                    value={videoPlaybackRate}
-                    onChange={handleVideoPlaybackRateChange}
-                    aria-label="Playback speed"
-                  >
-                    {VIDEO_PLAYBACK_RATES.map((rate) => (
-                      <option key={rate} value={rate}>
-                        {rate}x
-                      </option>
-                    ))}
-                  </select>
+                  <div className={styles.videoSpeedRow}>
+                    <label className={styles.videoSpeedLabel} htmlFor="video-speed-select">
+                      Speed
+                    </label>
+                    <select
+                      id="video-speed-select"
+                      className={styles.videoSpeedSelect}
+                      value={videoPlaybackRate}
+                      onChange={handleVideoPlaybackRateChange}
+                      aria-label="Playback speed"
+                    >
+                      {VIDEO_PLAYBACK_RATES.map((rate) => (
+                        <option key={rate} value={rate}>
+                          {rate}x
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className={styles.videoTimelineRow}>
                   <span className={styles.videoTimeText}>
@@ -2252,7 +2373,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                     cy={videoAnnotationDraft.cy}
                     r={videoAnnotationDraft.r}
                     fill="none"
-                    stroke={annotationColor}
+                    stroke={activeVideoMarkupColor}
                     strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
                     opacity={0.88}
                   />
@@ -2262,7 +2383,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                     y1={videoAnnotationDraft.y1}
                     x2={videoAnnotationDraft.x2}
                     y2={videoAnnotationDraft.y2}
-                    stroke={annotationColor}
+                    stroke={activeVideoMarkupColor}
                     strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
                     strokeLinecap="round"
                     opacity={0.88}
@@ -2282,13 +2403,13 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                           y1={d.y1}
                           x2={lx2}
                           y2={ly2}
-                          stroke={annotationColor}
+                          stroke={activeVideoMarkupColor}
                           strokeWidth={sw}
                           strokeLinecap="round"
                         />
                         <polygon
                           points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
-                          fill={annotationColor}
+                          fill={activeVideoMarkupColor}
                         />
                       </g>
                     )

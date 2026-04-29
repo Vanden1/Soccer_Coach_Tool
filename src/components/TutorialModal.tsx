@@ -139,6 +139,12 @@ export function TutorialModal({ open, onClose }: TutorialModalProps) {
               Use <strong>Erase</strong> and tap a drawing to remove it, or{' '}
               <strong>Clear drawings</strong> to remove all annotations at once.
             </p>
+            <p>
+              On supported stylus devices (including Microsoft Surface Pen),
+              drawing responds to pen pressure for thickness, the pen eraser
+              acts as erase mode, and touch input is ignored while the pen is
+              active to reduce accidental palm marks.
+            </p>
           </section>
 
           <section className={styles.section}>
