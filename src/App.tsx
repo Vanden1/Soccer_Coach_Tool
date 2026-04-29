@@ -4,6 +4,7 @@ import { SoccerField, type SoccerFieldTab } from './components/SoccerField'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TutorialModal } from './components/TutorialModal'
 
+
 function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SoccerFieldTab>('team')
