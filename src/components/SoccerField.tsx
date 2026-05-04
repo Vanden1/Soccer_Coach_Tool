@@ -560,6 +560,8 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const videoAnnotationDragRef = useRef<AnnotationDragState | null>(null)
 
   const [activeTab, setActiveTab] = useState<SoccerFieldTab>('team')
+  const [selectedOffenseNumber, setSelectedOffenseNumber] = useState(1)
+  const [selectedDefenseNumber, setSelectedDefenseNumber] = useState(1)
   const keepControlsVisible =
     activeTab === 'recordings' ||
     activeTab === 'annotations' ||
@@ -582,6 +584,14 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1)
   const activeVideoMarkupColor = toVideoMarkupColor(annotationColor)
   const activePenPointersRef = useRef<Set<number>>(new Set())
+  const selectedOffenseId = `offense-${selectedOffenseNumber}` as Exclude<
+    PieceId,
+    'ball'
+  >
+  const selectedDefenseId = `defense-${selectedDefenseNumber}` as Exclude<
+    PieceId,
+    'ball'
+  >
 
   function beginPenSession(pointerId: number, pointerType: string) {
     if (pointerType !== 'pen') return
@@ -1489,6 +1499,11 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     })
   }, [teamSize])
 
+  useEffect(() => {
+    setSelectedOffenseNumber((prev) => clamp(prev, 1, teamSize))
+    setSelectedDefenseNumber((prev) => clamp(prev, 1, teamSize))
+  }, [teamSize])
+
   const togglePlayerHighlight = useCallback((pieceId: PieceId) => {
     if (pieceId === 'ball') return
     setHighlightedPlayerIds((prev) => {
@@ -2011,66 +2026,96 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
             <div className={styles.nameSection}>
               <div className={styles.nameSectionTitle}>Player names</div>
               <p className={styles.nameSectionHint}>
-                Optional names appear under each jersey number on the field (saved on this device).
+                Choose a player number, then add or edit a name. Names appear
+                under jersey numbers on the field (saved on this device).
               </p>
-              <div className={styles.nameColumns}>
-                <div>
+              <div className={styles.nameEditors}>
+                <div className={styles.nameEditorCard}>
                   <div className={styles.nameColTitle}>Offense</div>
-                  {Array.from({ length: teamSize }, (_, i) => {
-                    const n = i + 1
-                    const id = `offense-${n}` as Exclude<PieceId, 'ball'>
-                    return (
-                      <label key={id} className={styles.nameRow}>
-                        <span className={styles.nameRowNum}>{n}</span>
-                        <input
-                          className={styles.nameInput}
-                          type="text"
-                          value={playerNames[id] ?? ''}
-                          placeholder="Name"
-                          maxLength={PLAYER_NAME_MAX}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setPlayerNames((prev) => {
-                              const next = { ...prev }
-                              if (!v.trim()) delete next[id]
-                              else next[id] = v
-                              return next
-                            })
-                          }}
-                          aria-label={`Offense player ${n} name`}
-                        />
-                      </label>
-                    )
-                  })}
+                  <label className={styles.nameEditorRow}>
+                    <span className={styles.label}>Player #</span>
+                    <select
+                      className={styles.select}
+                      value={selectedOffenseNumber}
+                      onChange={(e) =>
+                        setSelectedOffenseNumber(Number(e.target.value))
+                      }
+                      aria-label="Select offense player number"
+                    >
+                      {Array.from({ length: teamSize }, (_, i) => {
+                        const n = i + 1
+                        return (
+                          <option key={`offense-option-${n}`} value={n}>
+                            {n}
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </label>
+                  <label className={styles.nameEditorRow}>
+                    <span className={styles.label}>Name</span>
+                    <input
+                      className={styles.nameInput}
+                      type="text"
+                      value={playerNames[selectedOffenseId] ?? ''}
+                      placeholder="Name"
+                      maxLength={PLAYER_NAME_MAX}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPlayerNames((prev) => {
+                          const next = { ...prev }
+                          if (!v.trim()) delete next[selectedOffenseId]
+                          else next[selectedOffenseId] = v
+                          return next
+                        })
+                      }}
+                      aria-label={`Offense player ${selectedOffenseNumber} name`}
+                    />
+                  </label>
                 </div>
-                <div>
+
+                <div className={styles.nameEditorCard}>
                   <div className={styles.nameColTitle}>Defense</div>
-                  {Array.from({ length: teamSize }, (_, i) => {
-                    const n = i + 1
-                    const id = `defense-${n}` as Exclude<PieceId, 'ball'>
-                    return (
-                      <label key={id} className={styles.nameRow}>
-                        <span className={styles.nameRowNum}>{n}</span>
-                        <input
-                          className={styles.nameInput}
-                          type="text"
-                          value={playerNames[id] ?? ''}
-                          placeholder="Name"
-                          maxLength={PLAYER_NAME_MAX}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setPlayerNames((prev) => {
-                              const next = { ...prev }
-                              if (!v.trim()) delete next[id]
-                              else next[id] = v
-                              return next
-                            })
-                          }}
-                          aria-label={`Defense player ${n} name`}
-                        />
-                      </label>
-                    )
-                  })}
+                  <label className={styles.nameEditorRow}>
+                    <span className={styles.label}>Player #</span>
+                    <select
+                      className={styles.select}
+                      value={selectedDefenseNumber}
+                      onChange={(e) =>
+                        setSelectedDefenseNumber(Number(e.target.value))
+                      }
+                      aria-label="Select defense player number"
+                    >
+                      {Array.from({ length: teamSize }, (_, i) => {
+                        const n = i + 1
+                        return (
+                          <option key={`defense-option-${n}`} value={n}>
+                            {n}
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </label>
+                  <label className={styles.nameEditorRow}>
+                    <span className={styles.label}>Name</span>
+                    <input
+                      className={styles.nameInput}
+                      type="text"
+                      value={playerNames[selectedDefenseId] ?? ''}
+                      placeholder="Name"
+                      maxLength={PLAYER_NAME_MAX}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPlayerNames((prev) => {
+                          const next = { ...prev }
+                          if (!v.trim()) delete next[selectedDefenseId]
+                          else next[selectedDefenseId] = v
+                          return next
+                        })
+                      }}
+                      aria-label={`Defense player ${selectedDefenseNumber} name`}
+                    />
+                  </label>
                 </div>
               </div>
             </div>

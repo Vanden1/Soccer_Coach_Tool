@@ -106,7 +106,9 @@
 }
 
 .main {
-  flex: 1;
+  flex: 0 0 auto;
+  height: 100svh;
+  height: 100dvh;
   width: 100%;
   max-width: 100%;
   padding: clamp(10px, 2.5vw, 18px);
@@ -117,9 +119,12 @@
   place-items: stretch;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .mainVideoMode {
+  flex: 1;
+  height: auto;
   padding: 4px;
   padding-left: max(4px, env(safe-area-inset-left, 0px));
   padding-right: max(4px, env(safe-area-inset-right, 0px));

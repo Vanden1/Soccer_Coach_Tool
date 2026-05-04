@@ -35,14 +35,14 @@
 }
 
 .tabShellCollapsible {
-  max-height: min(40dvh, 380px);
-  overflow: auto;
-  overscroll-behavior: contain;
+  max-height: none;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .tabShellCollapsible .tabList {
-  position: sticky;
-  top: 0;
+  position: relative;
+  top: auto;
 }
 
 .tabList {
@@ -57,7 +57,7 @@
 
 .tab {
   flex: 1 1 auto;
-  min-width: min(100%, 5.5rem);
+  min-width: 0;
   padding: 10px clamp(8px, 2vw, 14px);
   border: none;
   border-bottom: 2px solid transparent;
@@ -265,7 +265,7 @@
   line-height: 140%;
 }
 
-.nameColumns {
+.nameEditors {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px 20px;
@@ -273,9 +273,25 @@
 }
 
 @media (max-width: 640px) {
-  .nameColumns {
+  .nameEditors {
     grid-template-columns: 1fr;
   }
+}
+
+.nameEditorCard {
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  display: grid;
+  gap: 8px;
+}
+
+.nameEditorRow {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
 }
 
 .nameColTitle {
@@ -843,10 +859,6 @@
 }
 
 @media (max-width: 560px) {
-  .tabShellCollapsible {
-    max-height: min(46dvh, 420px);
-  }
-
   .tabPanelInner {
     flex-direction: column;
     align-items: stretch;
@@ -883,6 +895,77 @@
 
   .videoTabPanelInner {
     padding: 10px;
+  }
+}
+
+@media (max-height: 900px) {
+  .wrapper {
+    gap: 10px;
+  }
+
+  .tab {
+    padding: 8px 8px;
+    font-size: 12px;
+  }
+
+  .tabPanelInner {
+    gap: 8px;
+    padding: 10px 10px 12px;
+  }
+
+  .btn,
+  .toolBtn,
+  .select,
+  .input {
+    padding-top: 6px;
+    padding-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .legend {
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 760px) {
+  .wrapper {
+    gap: 8px;
+  }
+
+  .tab {
+    padding: 6px 6px;
+    font-size: 11px;
+  }
+
+  .tabPanelInner {
+    gap: 6px;
+    padding: 8px 8px 10px;
+  }
+
+  .btn,
+  .toolBtn,
+  .select,
+  .input,
+  .nameInput {
+    font-size: 12px;
+    min-height: 32px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .label,
+  .nameSectionHint,
+  .nameColTitle {
+    font-size: 11px;
+  }
+
+  .nameEditorRow {
+    grid-template-columns: 56px 1fr;
+    gap: 6px;
+  }
+
+  .nameRow {
+    margin-bottom: 6px;
   }
 }
 
