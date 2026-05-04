@@ -1,12 +1,10 @@
 .app {
   display: flex;
-  height: 100svh;
-  height: 100dvh;
-  min-height: 0;
+  min-height: 100svh;
+  min-height: 100dvh;
   flex-direction: column;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
 }
 
 .topbarActions {
@@ -60,9 +58,6 @@
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -122,7 +117,6 @@
   place-items: stretch;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
 }
 
 .mainVideoMode {
