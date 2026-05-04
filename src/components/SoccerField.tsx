@@ -10,11 +10,13 @@ import {
   saveAnnotations,
   strokeLevelToSvgWidth,
 } from './fieldAnnotations'
+import { interpolateStepPositions } from './soccerDomain'
 
 type AnnotationDraft =
   | { kind: 'line'; x1: number; y1: number; x2: number; y2: number }
   | { kind: 'arrow'; x1: number; y1: number; x2: number; y2: number }
   | { kind: 'circle'; cx: number; cy: number; r: number }
+  | { kind: 'freeDraw'; points: Point[] }
 
 type TeamId = 'offense' | 'defense'
 
@@ -52,6 +54,8 @@ type Movement = {
   from: Point
   to: Point
 }
+
+type PlaybackDirection = 'forward' | 'backward'
 
 type PlayStep = {
   movements: Movement[]
@@ -120,6 +124,15 @@ function offsetAnnotation(
       ...annotation,
       cx: clamp01(annotation.cx + dx),
       cy: clamp01(annotation.cy + dy),
+    }
+  }
+  if (annotation.kind === 'freeDraw') {
+    return {
+      ...annotation,
+      points: annotation.points.map((point) => ({
+        x: clamp01(point.x + dx),
+        y: clamp01(point.y + dy),
+      })),
     }
   }
   return {
@@ -233,10 +246,12 @@ function loadGkOverrides(): GkOverrides {
 
     const out: GkOverrides = {}
     for (const team of ['offense', 'defense'] as const) {
-      const v = obj[team] as any
+      const v = obj[team]
       if (
         v &&
         typeof v === 'object' &&
+        'x' in v &&
+        'y' in v &&
         typeof v.x === 'number' &&
         typeof v.y === 'number'
       ) {
@@ -440,6 +455,8 @@ type AnnotationDragState = {
 
 const DRAG_THRESHOLD_PX = 6
 const DOUBLE_TAP_MS = 420
+const FREE_DRAW_POINT_MIN_DISTANCE = 0.0025
+const FREE_DRAW_MIN_LENGTH = 0.004
 const VIDEO_PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 const VIDEO_MARKUP_COLORS = ['red', 'blue', 'yellow', 'white', 'black'] as const
 
@@ -450,6 +467,25 @@ function toVideoMarkupColor(color: string): VideoMarkupColor {
     return color as VideoMarkupColor
   }
   return 'red'
+}
+
+function appendFreeDrawPoint(points: Point[], point: Point): Point[] {
+  const last = points[points.length - 1]
+  if (!last) return [point]
+  const distance = Math.hypot(point.x - last.x, point.y - last.y)
+  if (distance < FREE_DRAW_POINT_MIN_DISTANCE) return points
+  return [...points, point]
+}
+
+function freeDrawLength(points: Point[]): number {
+  if (points.length < 2) return 0
+  let total = 0
+  for (let i = 1; i < points.length; i++) {
+    const previous = points[i - 1]
+    const current = points[i]
+    total += Math.hypot(current.x - previous.x, current.y - previous.y)
+  }
+  return total
 }
 
 export type SoccerFieldTab =
@@ -478,7 +514,6 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     loadPlayerNames(),
   )
   const playerNamesRef = useRef<PlayerNamesMap>(playerNames)
-  playerNamesRef.current = playerNames
 
   const [pieces, setPieces] = useState<Piece[]>(() =>
     mergeNamesOntoPieces(
@@ -525,6 +560,10 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const videoAnnotationDragRef = useRef<AnnotationDragState | null>(null)
 
   const [activeTab, setActiveTab] = useState<SoccerFieldTab>('team')
+  const keepControlsVisible =
+    activeTab === 'recordings' ||
+    activeTab === 'annotations' ||
+    activeTab === 'playVideo'
 
   const [videoAnnotateTool, setVideoAnnotateTool] = useState<AnnotateTool>('move')
   const [videoAnnotations, setVideoAnnotations] = useState<FieldAnnotation[]>([])
@@ -568,6 +607,10 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   useEffect(() => {
     piecesRef.current = pieces
   }, [pieces])
+
+  useEffect(() => {
+    playerNamesRef.current = playerNames
+  }, [playerNames])
 
   useEffect(() => {
     savePlayerNames(playerNames)
@@ -681,6 +724,20 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : `ann-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      if (d.kind === 'freeDraw') {
+        if (d.points.length < 2 || freeDrawLength(d.points) < FREE_DRAW_MIN_LENGTH) return
+        setAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'freeDraw',
+            points: d.points,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+        return
+      }
       if (d.kind === 'circle') {
         if (d.r < 0.004) return
         setAnnotations((prev) => [
@@ -768,6 +825,13 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         }
         annotationDraftRef.current = draft
         setAnnotationDraft(draft)
+      } else if (tool === 'freeDraw') {
+        const draft: AnnotationDraft = {
+          kind: 'freeDraw',
+          points: [{ x, y }],
+        }
+        annotationDraftRef.current = draft
+        setAnnotationDraft(draft)
       } else {
         const draft: AnnotationDraft = { kind: 'circle', cx: x, cy: y, r: 0 }
         annotationDraftRef.current = draft
@@ -808,6 +872,11 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         if (prev.kind === 'circle') {
           const rad = Math.hypot(nx - prev.cx, ny - prev.cy)
           next = { ...prev, r: rad }
+        } else if (prev.kind === 'freeDraw') {
+          next = {
+            ...prev,
+            points: appendFreeDrawPoint(prev.points, { x: nx, y: ny }),
+          }
         } else {
           next = { ...prev, x2: nx, y2: ny }
         }
@@ -847,6 +916,20 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : `video-ann-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      if (d.kind === 'freeDraw') {
+        if (d.points.length < 2 || freeDrawLength(d.points) < FREE_DRAW_MIN_LENGTH) return
+        setVideoAnnotations((prev) => [
+          ...prev,
+          {
+            id,
+            kind: 'freeDraw',
+            points: d.points,
+            color,
+            strokeLevel: sl,
+          },
+        ])
+        return
+      }
       if (d.kind === 'circle') {
         if (d.r < 0.004) return
         setVideoAnnotations((prev) => [
@@ -987,6 +1070,13 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         }
         videoAnnotationDraftRef.current = draft
         setVideoAnnotationDraft(draft)
+      } else if (tool === 'freeDraw') {
+        const draft: AnnotationDraft = {
+          kind: 'freeDraw',
+          points: [{ x, y }],
+        }
+        videoAnnotationDraftRef.current = draft
+        setVideoAnnotationDraft(draft)
       } else {
         const draft: AnnotationDraft = { kind: 'circle', cx: x, cy: y, r: 0 }
         videoAnnotationDraftRef.current = draft
@@ -1027,6 +1117,11 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
         if (prev.kind === 'circle') {
           const rad = Math.hypot(nx - prev.cx, ny - prev.cy)
           next = { ...prev, r: rad }
+        } else if (prev.kind === 'freeDraw') {
+          next = {
+            ...prev,
+            points: appendFreeDrawPoint(prev.points, { x: nx, y: ny }),
+          }
         } else {
           next = { ...prev, x2: nx, y2: ny }
         }
@@ -1145,6 +1240,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
       const startAnnotation = annotations.find((a) => a.id === id)
       if (!startAnnotation) return
+      if (startAnnotation.kind === 'freeDraw') return
 
       if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         e.preventDefault()
@@ -1245,6 +1341,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
 
       const startAnnotation = videoAnnotations.find((a) => a.id === id)
       if (!startAnnotation) return
+      if (startAnnotation.kind === 'freeDraw') return
 
       if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         e.preventDefault()
@@ -1631,7 +1728,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     play: SavedPlay,
     stepIndex: number,
     autoContinue: boolean,
-    direction: 'forward' | 'backward' = 'forward',
+    direction: PlaybackDirection = 'forward',
   ) {
     const step = play.steps[stepIndex]
     if (!step) {
@@ -1640,24 +1737,14 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     }
 
     const duration = 700
-    const startTime = performance.now()
-
-    function frame(now: number) {
+    function frame(startTime: number, now: number) {
       const t = clamp01((now - startTime) / duration)
-      setPieces((prev) =>
-        prev.map((p) => {
-          const m = step.movements.find((mv) => mv.id === p.id)
-          if (!m) return p
-          const from = direction === 'forward' ? m.from : m.to
-          const to = direction === 'forward' ? m.to : m.from
-          const x = from.x + (to.x - from.x) * t
-          const y = from.y + (to.y - from.y) * t
-          return { ...p, pos: { x, y } }
-        }),
-      )
+      setPieces((prev) => interpolateStepPositions(prev, step.movements, t, direction))
 
       if (t < 1) {
-        animationRef.current = requestAnimationFrame(frame)
+        animationRef.current = requestAnimationFrame((nextNow) =>
+          frame(startTime, nextNow),
+        )
       } else if (autoContinue && stepIndex + 1 < play.steps.length) {
         setCurrentStepIndex(stepIndex + 1)
         runStep(play, stepIndex + 1, true, 'forward')
@@ -1667,7 +1754,9 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     }
 
     setIsPlaying(true)
-    animationRef.current = requestAnimationFrame(frame)
+    animationRef.current = requestAnimationFrame((startTime) =>
+      frame(startTime, startTime),
+    )
   }
 
   function handlePlayAll() {
@@ -1772,7 +1861,9 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     <div
       className={`${styles.wrapper} ${activeTab === 'playVideo' ? styles.wrapperVideoMode : ''}`}
     >
-      <div className={styles.tabShell}>
+      <div
+        className={`${styles.tabShell} ${keepControlsVisible ? styles.tabShellPinned : styles.tabShellCollapsible}`}
+      >
         <div
           className={styles.tabList}
           role="tablist"
@@ -2085,6 +2176,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                 [
                   ['move', 'Move'],
                   ['line', 'Line'],
+                  ['freeDraw', 'Free Draw'],
                   ['circle', 'Circle'],
                   ['arrow', 'Arrow'],
                   ['erase', 'Erase'],
@@ -2174,6 +2266,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                 [
                   ['move', 'Move'],
                   ['line', 'Line'],
+                  ['freeDraw', 'Free Draw'],
                   ['circle', 'Circle'],
                   ['arrow', 'Arrow'],
                   ['erase', 'Erase'],
@@ -2344,6 +2437,19 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                     />
                   )
                 }
+                if (a.kind === 'freeDraw') {
+                  return (
+                    <polyline
+                      key={a.id}
+                      points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                      fill="none"
+                      stroke={a.color}
+                      strokeWidth={sw}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )
+                }
                 const head = Math.max(0.012, sw * 5)
                 const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
                 const lx2 = a.x2 - head * Math.cos(ang)
@@ -2386,6 +2492,18 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                     stroke={activeVideoMarkupColor}
                     strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
                     strokeLinecap="round"
+                    opacity={0.88}
+                  />
+                ) : videoAnnotationDraft.kind === 'freeDraw' ? (
+                  <polyline
+                    points={videoAnnotationDraft.points
+                      .map((point) => `${point.x},${point.y}`)
+                      .join(' ')}
+                    fill="none"
+                    stroke={activeVideoMarkupColor}
+                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     opacity={0.88}
                   />
                 ) : (
@@ -2524,6 +2642,19 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                   />
                 )
               }
+              if (a.kind === 'freeDraw') {
+                return (
+                  <polyline
+                    key={a.id}
+                    points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                    fill="none"
+                    stroke={a.color}
+                    strokeWidth={sw}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )
+              }
               const head = Math.max(0.012, sw * 5)
               const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
               const lx2 = a.x2 - head * Math.cos(ang)
@@ -2566,6 +2697,18 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
                   stroke={annotationColor}
                   strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
                   strokeLinecap="round"
+                  opacity={0.88}
+                />
+              ) : annotationDraft.kind === 'freeDraw' ? (
+                <polyline
+                  points={annotationDraft.points
+                    .map((point) => `${point.x},${point.y}`)
+                    .join(' ')}
+                  fill="none"
+                  stroke={annotationColor}
+                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   opacity={0.88}
                 />
               ) : (

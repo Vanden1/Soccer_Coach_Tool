@@ -1,4 +1,9 @@
-export type AnnotateTool = 'move' | 'line' | 'circle' | 'arrow' | 'erase'
+export type AnnotateTool = 'move' | 'line' | 'circle' | 'arrow' | 'freeDraw' | 'erase'
+
+type AnnotationPoint = {
+  x: number
+  y: number
+}
 
 export type FieldAnnotation =
   | {
@@ -27,6 +32,13 @@ export type FieldAnnotation =
       y1: number
       x2: number
       y2: number
+      color: string
+      strokeLevel: number
+    }
+  | {
+      id: string
+      kind: 'freeDraw'
+      points: AnnotationPoint[]
       color: string
       strokeLevel: number
     }
@@ -72,6 +84,23 @@ export function loadAnnotations(): FieldAnnotation[] {
           typeof o.cy === 'number' &&
           typeof o.r === 'number'
         ) {
+          out.push(o as FieldAnnotation)
+        }
+      } else if (o.kind === 'freeDraw') {
+        if (!Array.isArray(o.points) || o.points.length < 2) continue
+        let isValid = true
+        for (const point of o.points) {
+          if (
+            !point ||
+            typeof point !== 'object' ||
+            typeof (point as Record<string, unknown>).x !== 'number' ||
+            typeof (point as Record<string, unknown>).y !== 'number'
+          ) {
+            isValid = false
+            break
+          }
+        }
+        if (isValid) {
           out.push(o as FieldAnnotation)
         }
       }
@@ -124,6 +153,26 @@ function distPointToCircleOutline(
   return Math.abs(Math.hypot(px - cx, py - cy) - r)
 }
 
+function distPointToPolyline(
+  px: number,
+  py: number,
+  points: AnnotationPoint[],
+): number {
+  if (points.length === 0) return Infinity
+  if (points.length === 1) {
+    const p = points[0]
+    return Math.hypot(px - p.x, py - p.y)
+  }
+  let best = Infinity
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]
+    const b = points[i]
+    const d = distPointToSegment(px, py, a.x, a.y, b.x, b.y)
+    if (d < best) best = d
+  }
+  return best
+}
+
 export function hitTestAnnotation(
   annotations: FieldAnnotation[],
   x: number,
@@ -142,9 +191,17 @@ export function hitTestAnnotation(
         best = d
         bestId = a.id
       }
-    } else {
+    } else if (a.kind === 'circle') {
       const w = strokeLevelToSvgWidth(a.strokeLevel)
       const d = distPointToCircleOutline(x, y, a.cx, a.cy, a.r)
+      const thresh = base + w * 4
+      if (d < thresh && d < best) {
+        best = d
+        bestId = a.id
+      }
+    } else {
+      const w = strokeLevelToSvgWidth(a.strokeLevel)
+      const d = distPointToPolyline(x, y, a.points)
       const thresh = base + w * 4
       if (d < thresh && d < best) {
         best = d

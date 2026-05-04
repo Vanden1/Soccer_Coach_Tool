@@ -1,10 +1,12 @@
 .app {
   display: flex;
-  min-height: 100svh;
-  min-height: 100dvh;
+  height: 100svh;
+  height: 100dvh;
+  min-height: 0;
   flex-direction: column;
   width: 100%;
   max-width: 100%;
+  overflow: hidden;
 }
 
 .topbarActions {
@@ -117,8 +119,10 @@
   padding-right: max(clamp(10px, 2.5vw, 18px), env(safe-area-inset-right, 0px));
   padding-bottom: max(clamp(10px, 2.5vw, 18px), env(safe-area-inset-bottom, 0px));
   display: grid;
-  place-items: center;
+  place-items: stretch;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .mainVideoMode {
@@ -133,6 +137,7 @@
 
 .card {
   width: 100%;
+  height: 100%;
   max-width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: clamp(12px, 2vw, 18px);
@@ -143,6 +148,10 @@
     inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent);
   padding: clamp(12px, 3vw, 18px);
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   touch-action: manipulation;
   overscroll-behavior: contain;
 }
