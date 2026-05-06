@@ -11,6 +11,11 @@ import {
   strokeLevelToSvgWidth,
 } from './fieldAnnotations'
 import { interpolateStepPositions } from './soccerDomain'
+import {
+  loadPlaysForUser,
+  migrateLocalPlaysToUser,
+  savePlaysForUser,
+} from '../lib/playsRepository'
 
 type AnnotationDraft =
   | { kind: 'line'; x1: number; y1: number; x2: number; y2: number }
@@ -61,7 +66,7 @@ type PlayStep = {
   movements: Movement[]
 }
 
-type SavedPlay = {
+export type SavedPlay = {
   id: string
   name: string
   teamSize: 7 | 9 | 11
@@ -168,7 +173,6 @@ const GK_X = {
 } as const
 
 const GK_OVERRIDE_STORAGE_KEY = 'soccerCoach.gkOverrides.v1'
-const PLAYS_STORAGE_KEY = 'soccerCoach.plays.v1'
 const PLAYER_NAMES_STORAGE_KEY = 'soccerCoach.playerNames.v1'
 
 const PLAYER_NAME_MAX = 40
@@ -282,26 +286,6 @@ function snapshotsToMap(snaps: PieceSnapshot[]): Map<PieceId, Point> {
     m.set(s.id, s.pos)
   }
   return m
-}
-
-function loadPlays(): SavedPlay[] {
-  try {
-    const raw = localStorage.getItem(PLAYS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed as SavedPlay[]
-  } catch {
-    return []
-  }
-}
-
-function savePlays(plays: SavedPlay[]) {
-  try {
-    localStorage.setItem(PLAYS_STORAGE_KEY, JSON.stringify(plays))
-  } catch {
-    // ignore
-  }
 }
 
 function parseFormation(formation: string): number[] {
@@ -496,10 +480,11 @@ export type SoccerFieldTab =
   | 'playVideo'
 
 type SoccerFieldProps = {
+  userId: string
   onActiveTabChange?: (tab: SoccerFieldTab) => void
 }
 
-export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
+export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [teamSize, setTeamSize] = useState<7 | 9 | 11>(11)
   const [offenseFormation, setOffenseFormation] = useState(
     () => DEFAULT_FORMATION[11],
@@ -540,11 +525,14 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   const [draftSteps, setDraftSteps] = useState<PlayStep[]>([])
   const [lastSnapshot, setLastSnapshot] = useState<PieceSnapshot[] | null>(null)
 
-  const [plays, setPlays] = useState<SavedPlay[]>(() => loadPlays())
+  const [plays, setPlays] = useState<SavedPlay[]>([])
+  const [playsLoading, setPlaysLoading] = useState(true)
+  const [playsError, setPlaysError] = useState<string | null>(null)
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const animationRef = useRef<number | null>(null)
+  const playsHydratedRef = useRef(false)
 
   const [annotateTool, setAnnotateTool] = useState<AnnotateTool>('move')
   const [annotations, setAnnotations] = useState<FieldAnnotation[]>(() =>
@@ -648,6 +636,62 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
   useEffect(() => {
     onActiveTabChange?.(activeTab)
   }, [activeTab, onActiveTabChange])
+
+  useEffect(() => {
+    let cancelled = false
+    playsHydratedRef.current = false
+    setPlaysLoading(true)
+    setPlaysError(null)
+
+    async function syncFromFirestore() {
+      try {
+        await migrateLocalPlaysToUser(userId)
+        const nextPlays = await loadPlaysForUser(userId)
+        if (cancelled) return
+        playsHydratedRef.current = true
+        setPlays(nextPlays)
+        setSelectedPlayId((current) =>
+          current && nextPlays.some((play) => play.id === current) ? current : null,
+        )
+      } catch (err) {
+        if (cancelled) return
+        setPlaysError(
+          err instanceof Error ? err.message : 'Unable to load plays from Firebase.',
+        )
+      } finally {
+        if (!cancelled) {
+          setPlaysLoading(false)
+        }
+      }
+    }
+
+    void syncFromFirestore()
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!playsHydratedRef.current) return
+    let cancelled = false
+
+    async function persistPlays() {
+      try {
+        await savePlaysForUser(userId, plays)
+        if (!cancelled) setPlaysError(null)
+      } catch (err) {
+        if (cancelled) return
+        setPlaysError(
+          err instanceof Error ? err.message : 'Unable to save plays to Firebase.',
+        )
+      }
+    }
+
+    void persistPlays()
+    return () => {
+      cancelled = true
+    }
+  }, [plays, userId])
 
   useEffect(() => {
     return () => {
@@ -1693,9 +1737,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
     }
 
     setPlays((prev) => {
-      const next = [...prev, play]
-      savePlays(next)
-      return next
+      return [...prev, play]
     })
 
     setIsRecording(false)
@@ -2130,6 +2172,10 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
           className={`${styles.tabPanel} ${activeTab !== 'recordings' ? styles.tabPanelHidden : ''}`}
         >
           <div className={styles.tabPanelInner}>
+            {playsLoading ? (
+              <span className={styles.label}>Loading plays from Firebase...</span>
+            ) : null}
+            {playsError ? <span className={styles.label}>{playsError}</span> : null}
             {isRecording && (
               <>
                 <span className={styles.label}>Play title</span>
@@ -2145,7 +2191,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
             <button
               className={styles.btn}
               onClick={handleCreatePlay}
-              disabled={isRecording}
+              disabled={isRecording || playsLoading}
             >
               Create play
             </button>
@@ -2169,6 +2215,7 @@ export function SoccerField({ onActiveTabChange }: SoccerFieldProps) {
               value={selectedPlayId ?? ''}
               onChange={(e) => handleSelectPlay(e.target.value)}
               aria-label="Saved plays"
+              disabled={playsLoading}
             >
               <option value="">None</option>
               {plays.map((p) => (

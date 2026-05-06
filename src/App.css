@@ -7,6 +7,122 @@
   max-width: 100%;
 }
 
+.authShell {
+  min-height: 100svh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.authCard {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: clamp(22px, 3.5vw, 30px);
+  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
+  box-shadow: var(--shadow);
+}
+
+.authTitle {
+  margin: 0;
+  font-size: clamp(1.2rem, 3.6vw, 1.55rem);
+  font-weight: 650;
+  color: var(--text-h);
+}
+
+.authSubtitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  padding-bottom: 2px;
+}
+
+.authLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+.authInput {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  color: var(--text-h);
+}
+
+.authPasswordRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.authInputPassword {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.authPasswordToggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  cursor: pointer;
+}
+
+.authPasswordToggle:hover {
+  color: var(--text-h);
+}
+
+.authPasswordToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.authPasswordToggleIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.authInput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.authError {
+  margin: 0;
+  font-size: 13px;
+  color: #ef4444;
+}
+
+.authSecondaryBtn {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.authSecondaryBtn:active {
+  transform: translateY(1px);
+}
+
 .topbarActions {
   display: inline-flex;
   align-items: center;
@@ -51,6 +167,15 @@
 }
 
 @media (max-width: 480px), (pointer: coarse) {
+  .authCard {
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .authPasswordRow {
+    min-height: 44px;
+  }
+
   .tutorialTrigger {
     min-height: 44px;
     padding-inline: 16px;
