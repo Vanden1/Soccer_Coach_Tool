@@ -1,10 +1,13 @@
 .app {
   display: flex;
+  height: 100svh;
+  height: 100dvh;
   min-height: 100svh;
   min-height: 100dvh;
   flex-direction: column;
   width: 100%;
   max-width: 100%;
+  overflow: hidden;
 }
 
 .authShell {
@@ -238,9 +241,8 @@
 }
 
 .main {
-  flex: 0 0 auto;
-  height: 100svh;
-  height: 100dvh;
+  flex: 1 1 auto;
+  height: auto;
   width: 100%;
   max-width: 100%;
   padding: clamp(10px, 2.5vw, 18px);

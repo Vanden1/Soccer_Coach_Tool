@@ -1,7 +1,7 @@
 .wrapper {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
+  gap: clamp(8px, 1.8vh, 14px);
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -98,7 +98,7 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: clamp(12px, 3vw, 14px) clamp(12px, 3vw, 14px) 16px;
+  padding: clamp(8px, 2.2vh, 14px) clamp(10px, 2.6vw, 14px) clamp(10px, 2.2vh, 16px);
 }
 
 .videoTabPanelInner {
@@ -515,6 +515,7 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
   touch-action: none;
   overscroll-behavior: contain;
 }
@@ -924,6 +925,18 @@
 
   .legend {
     font-size: 12px;
+  }
+}
+
+@media (max-height: 1100px) {
+  .tab {
+    padding: 8px 8px;
+    font-size: 12px;
+  }
+
+  .tabPanelInner {
+    gap: 8px;
+    padding: 10px 10px 12px;
   }
 }
 
