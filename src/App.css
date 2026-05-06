@@ -41,6 +41,13 @@
   padding-bottom: 2px;
 }
 
+.authHint {
+  margin: -4px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  opacity: 0.82;
+}
+
 .authLabel {
   font-size: 13px;
   font-weight: 600;
