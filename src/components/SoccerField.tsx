@@ -1978,7 +1978,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               aria-label={tabItem.label}
               title={tabItem.label}
             >
-              <span aria-hidden>{tabItem.icon}</span>
+              <span className={styles.iconRailGlyph} aria-hidden>
+                {tabItem.icon}
+              </span>
             </button>
           ))}
         </div>
@@ -2636,7 +2638,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               aria-label="Upload video"
               title="Upload video"
             >
-              <span aria-hidden>⤴</span>
+              <span className={styles.iconRailGlyph} aria-hidden>
+                ⤴
+              </span>
             </button>
             {TOOL_ITEMS.map((toolItem) => (
               <button
@@ -2647,7 +2651,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                 aria-label={toolItem.label}
                 title={toolItem.label}
               >
-                <span aria-hidden>{toolItem.icon}</span>
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  {toolItem.icon}
+                </span>
               </button>
             ))}
             <button
@@ -2657,7 +2663,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               aria-label="Choose markup color"
               title="Choose markup color"
             >
-              <span aria-hidden>🎨</span>
+              <span className={styles.iconRailGlyph} aria-hidden>
+                🎨
+              </span>
             </button>
             {videoColorPaletteOpen ? (
               <div className={styles.videoColorPopover} aria-label="Video annotation colors">
@@ -2681,7 +2689,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               aria-label="Toggle line thickness slider"
               title="Toggle line thickness slider"
             >
-              <span aria-hidden>≋</span>
+              <span className={styles.iconRailGlyph} aria-hidden>
+                ≋
+              </span>
             </button>
             {videoThicknessOpen ? (
               <input
@@ -2702,7 +2712,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               aria-label="Clear markups"
               title="Clear markups"
             >
-              <span aria-hidden>🧹</span>
+              <span className={styles.iconRailGlyph} aria-hidden>
+                🧹
+              </span>
             </button>
           </div>
         </div>
@@ -2922,7 +2934,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                   aria-label="Players per team"
                   title="Players per team"
                 >
-                  <span aria-hidden>👥</span>
+                  <span className={styles.iconRailGlyph} aria-hidden>
+                    👥
+                  </span>
                 </button>
                 {teamTabletPopover === 'players' ? (
                   <div className={styles.teamTabletPopover} aria-label="Players per team options">
@@ -2948,7 +2962,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                   aria-label="Offense formation"
                   title="Offense formation"
                 >
-                  <span aria-hidden>O</span>
+                  <span className={styles.iconRailGlyph} aria-hidden>
+                    O
+                  </span>
                 </button>
                 {teamTabletPopover === 'offenseFormation' ? (
                   <div className={styles.teamTabletPopover} aria-label="Offense formation options">
@@ -2974,7 +2990,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                   aria-label="Defense formation"
                   title="Defense formation"
                 >
-                  <span aria-hidden>D</span>
+                  <span className={styles.iconRailGlyph} aria-hidden>
+                    D
+                  </span>
                 </button>
                 {teamTabletPopover === 'defenseFormation' ? (
                   <div className={styles.teamTabletPopover} aria-label="Defense formation options">
@@ -2999,7 +3017,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                 aria-label="Reset positions"
                 title="Reset positions"
               >
-                <span aria-hidden>↺</span>
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ↺
+                </span>
               </button>
             </div>
           ) : null}
