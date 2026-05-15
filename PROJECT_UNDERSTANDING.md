@@ -38,23 +38,92 @@
    - Sign-up/sign-in both use shared password constant `soccer-coach` in `App.tsx`.
    - Auth state controls access to the main app and Firestore recordings data.
 
-## Session Update (Tonight)
+## Session Update (Current Handoff Snapshot)
 
-- Firebase client wiring is complete:
-  - `firebase` dependency installed.
-  - `.env.example` added and `.env` safely ignored.
-  - Firestore/Auth clients exported from `src/lib/firebase.ts`.
-- Firestore is enabled in the Firebase project and recordings save/load is working in production.
-- Vercel production environment variables were configured and production redeployed successfully.
-- Sign-in page was polished:
-  - increased card spacing and form rhythm.
-  - password field removed per latest requirement (email-only input).
-- Field visuals were scaled up:
-  - players and ball increased (current sizes intentionally retained).
-  - field markings and center circle were enlarged.
-- Tablet fit issue was addressed:
-  - app/main height model changed to use remaining viewport under header.
-  - field container spacing/constraints tuned to reduce clipping risk.
+This section captures everything implemented in the latest UI iteration so a new agent can continue immediately.
+
+### High-level product state
+
+- App remains a single React/Vite SPA with Firebase Auth + Firestore-backed plays.
+- Primary active work area is tablet/coarse layout behavior in `App` header and `SoccerField`.
+- Desktop behavior is intentionally preserved; most new behavior is gated behind coarse-pointer + tablet-width media rules.
+
+### Files changed in this session
+
+- `src/App.tsx`
+  - Header title container now includes `titleCompactTablet` hook class.
+- `src/App.css`
+  - Added tablet header compaction rules (`@media (pointer: coarse) and (min-width: 700px)`):
+    - `Coaching tool` + `Soccer Field` inline on one row.
+    - Reduced topbar vertical padding.
+    - Smaller right-side controls (`How to use`, `Sign out`, theme selector) for tighter header height.
+- `src/components/SoccerField.tsx`
+  - Introduced shared tab metadata (`TAB_ITEMS`) and tool metadata (`TOOL_ITEMS`).
+  - Added tablet navigation shell (`tabletWorkspace`, `tabletNavRail`, `mainContent`) using icon tabs.
+  - Play Video:
+    - Removed displayed filename text from Play Video controls.
+    - Added right-side icon rail with collapsible color palette + thickness slider.
+  - Team mode:
+    - Added `TeamTabletPopover` state (`players`, `offenseFormation`, `defenseFormation`, `null`).
+    - Added right-side icon rail with left-opening popouts for:
+      - players-per-team select
+      - offense formation
+      - defense formation
+      - reset positions
+    - Popouts auto-close on selection and reset when leaving Team tab.
+    - Desktop Team toolbar retained but hidden on tablet Team mode.
+    - Team legends (offense/defense/ball chips) hidden in tablet Team mode only.
+- `src/components/SoccerField.module.css`
+  - Added tablet shell/rail layout classes:
+    - `tabletWorkspace`, `tabletNavRail`, `mainContent`
+    - `playVideoWorkspace` and `playVideoTabletToolsRail`
+    - `teamWorkspace` and `teamTabletToolsRail`
+    - popout classes (`teamTabletPopover`, `teamTabletOptionBtn`, active states)
+  - Added coarse tablet media behavior:
+    - hide top horizontal tabs in tablet rail modes
+    - show left icon nav rail globally for tablet
+    - show right rail for Play Video and Team tab contexts
+
+### Current runtime UX behavior (important)
+
+1. Global navigation on tablet/coarse (`min-width: 700px`)
+   - Left side icon tab rail is the primary tab switcher.
+   - Horizontal tab strip is hidden in this mode.
+2. Play Video tab on tablet
+   - Left icon rail persists for tab nav.
+   - Right icon rail controls upload/markup/color/thickness/clear.
+   - Color and thickness are toggle panels; color auto-closes after pick.
+3. Team Organization tab on tablet
+   - Right icon rail replaces inline Team toolbar.
+   - Three selectors open as horizontal popouts to the left and close after selection.
+   - Offense/Defense/Ball legend chips are suppressed in this mode.
+4. Desktop/non-tablet
+   - Existing top tab list and inline controls remain the expected default.
+
+### Validation run results (latest)
+
+- `npm run lint`: passes with one pre-existing warning in `src/components/SoccerField.tsx`:
+  - `react-hooks/exhaustive-deps` for missing `gkOverrides` dependency in the team-size effect.
+- `npm run typecheck`: pass.
+- `npm run test`: pass (current suite: 1 file, 6 tests).
+
+### Why these changes were made
+
+- User requested significantly more effective tablet use of vertical space.
+- Strategy used:
+  - move dense control surfaces from top bars into vertical icon rails,
+  - gate behavior to tablet/coarse media conditions,
+  - preserve desktop interaction model.
+
+### Current risks / follow-up items for next agent
+
+- `SoccerField.tsx` complexity increased further due to multiple tablet mode branches; extracting hooks/components is still advisable.
+- Tablet interactions should be manually validated on real hardware for:
+  - portrait/landscape sizing,
+  - popout clipping/overflow at narrow widths,
+  - touch target comfort and accidental overlap with field interactions.
+- The `gkOverrides` effect dependency warning remains unresolved (known pre-existing issue).
+- No E2E coverage exists for pointer-heavy/tablet-specific interactions.
 
 ## Suggested Seams For Splitting `SoccerField.tsx`
 

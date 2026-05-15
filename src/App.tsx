@@ -110,7 +110,7 @@ function App() {
     <div className={`app ${isVideoMode ? 'appVideoMode' : ''}`}>
       {!isVideoMode ? (
         <header className="topbar">
-          <div className="title">
+          <div className="title titleCompactTablet">
             <div className="kicker">Coaching tool</div>
             <div className="h1">Soccer Field</div>
           </div>

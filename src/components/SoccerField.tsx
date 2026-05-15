@@ -495,6 +495,8 @@ type SoccerFieldProps = {
   onActiveTabChange?: (tab: SoccerFieldTab) => void
 }
 
+type TeamTabletPopover = 'players' | 'offenseFormation' | 'defenseFormation' | null
+
 export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [teamSize, setTeamSize] = useState<7 | 9 | 11>(11)
   const [offenseFormation, setOffenseFormation] = useState(
@@ -582,6 +584,7 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1)
   const [videoColorPaletteOpen, setVideoColorPaletteOpen] = useState(false)
   const [videoThicknessOpen, setVideoThicknessOpen] = useState(false)
+  const [teamTabletPopover, setTeamTabletPopover] = useState<TeamTabletPopover>(null)
   const activeVideoMarkupColor = toVideoMarkupColor(annotationColor)
   const activePenPointersRef = useRef<Set<number>>(new Set())
   const selectedOffenseId = `offense-${selectedOffenseNumber}` as Exclude<
@@ -644,6 +647,12 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
       videoAnnotationDraftRef.current = null
       setVideoColorPaletteOpen(false)
       setVideoThicknessOpen(false)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'team') {
+      setTeamTabletPopover(null)
     }
   }, [activeTab])
 
@@ -1932,13 +1941,51 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     e.currentTarget.value = ''
   }
 
+  function toggleTeamTabletPopover(target: Exclude<TeamTabletPopover, null>) {
+    setTeamTabletPopover((current) => (current === target ? null : target))
+  }
+
+  function handleTeamSizeTabletSelect(size: 7 | 9 | 11) {
+    setTeamSize(size)
+    setTeamTabletPopover(null)
+  }
+
+  function handleOffenseFormationTabletSelect(next: string) {
+    setOffenseFormation(next)
+    setTeamTabletPopover(null)
+  }
+
+  function handleDefenseFormationTabletSelect(next: string) {
+    setDefenseFormation(next)
+    setTeamTabletPopover(null)
+  }
+
   return (
     <div
-      className={`${styles.wrapper} ${activeTab === 'playVideo' ? styles.wrapperVideoMode : ''}`}
+      className={`${styles.wrapper} ${activeTab === 'playVideo' ? styles.wrapperVideoMode : ''} ${activeTab === 'team' ? styles.wrapperTeamMode : ''}`}
     >
-      <div
-        className={`${styles.tabShell} ${keepControlsVisible ? styles.tabShellPinned : styles.tabShellCollapsible}`}
-      >
+      <div className={styles.tabletWorkspace}>
+        <div className={styles.tabletNavRail} role="tablist" aria-label="Soccer coach sections">
+          {TAB_ITEMS.map((tabItem) => (
+            <button
+              key={`rail-${tabItem.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tabItem.id}
+              tabIndex={activeTab === tabItem.id ? 0 : -1}
+              className={`${styles.iconRailBtn} ${activeTab === tabItem.id ? styles.iconRailBtnActive : ''}`}
+              onClick={() => setActiveTab(tabItem.id)}
+              aria-label={tabItem.label}
+              title={tabItem.label}
+            >
+              <span aria-hidden>{tabItem.icon}</span>
+            </button>
+          ))}
+        </div>
+        <div className={styles.mainContent}>
+          <div
+            className={`${styles.tabShell} ${keepControlsVisible ? styles.tabShellPinned : styles.tabShellCollapsible}`}
+          >
         <div
           className={styles.tabList}
           role="tablist"
@@ -1968,7 +2015,7 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
           aria-hidden={activeTab !== 'team'}
           className={`${styles.tabPanel} ${activeTab !== 'team' ? styles.tabPanelHidden : ''}`}
         >
-          <div className={styles.tabPanelInner}>
+          <div className={`${styles.tabPanelInner} ${styles.teamDesktopControls}`}>
             <span className={styles.label}>Players per team</span>
             <select
               className={styles.select}
@@ -2018,13 +2065,13 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               Reset positions
             </button>
 
-            <span className={styles.legend}>
+            <span className={`${styles.legend} ${styles.teamLegend}`}>
               <span className={styles.legendSwatchOffense} /> Offense
             </span>
-            <span className={styles.legend}>
+            <span className={`${styles.legend} ${styles.teamLegend}`}>
               <span className={styles.legendSwatchDefense} /> Defense
             </span>
-            <span className={styles.legend}>
+            <span className={`${styles.legend} ${styles.teamLegend}`}>
               <span className={styles.legendSwatchBall} /> Ball
             </span>
           </div>
@@ -2363,27 +2410,6 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
       </div>
       {activeTab === 'playVideo' ? (
         <div className={styles.playVideoWorkspace}>
-          <div
-            className={styles.playVideoTabletNavRail}
-            role="tablist"
-            aria-label="Play Video sections"
-          >
-            {TAB_ITEMS.map((tabItem) => (
-              <button
-                key={`video-nav-${tabItem.id}`}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tabItem.id}
-                tabIndex={activeTab === tabItem.id ? 0 : -1}
-                className={`${styles.iconRailBtn} ${activeTab === tabItem.id ? styles.iconRailBtnActive : ''}`}
-                onClick={() => setActiveTab(tabItem.id)}
-                aria-label={tabItem.label}
-                title={tabItem.label}
-              >
-                <span aria-hidden>{tabItem.icon}</span>
-              </button>
-            ))}
-          </div>
           <div className={styles.videoFieldOuter}>
             <div
               className={styles.videoField}
@@ -2681,211 +2707,306 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
           </div>
         </div>
       ) : (
-        <div className={styles.fieldOuter}>
-          <div
-            className={styles.field}
-            ref={fieldRef}
-            onPointerDownCapture={handleFieldPointerDownCapture}
-          >
-          <div className={styles.pitchLines} aria-hidden="true" />
-          <div className={styles.penaltyBoxLeft} aria-hidden="true" />
-          <div className={styles.penaltyBoxRight} aria-hidden="true" />
-          <div className={styles.goalLeft} aria-hidden="true" />
-          <div className={styles.goalRight} aria-hidden="true" />
+        <div className={styles.teamWorkspace}>
+          <div className={styles.fieldOuter}>
+            <div
+              className={styles.field}
+              ref={fieldRef}
+              onPointerDownCapture={handleFieldPointerDownCapture}
+            >
+              <div className={styles.pitchLines} aria-hidden="true" />
+              <div className={styles.penaltyBoxLeft} aria-hidden="true" />
+              <div className={styles.penaltyBoxRight} aria-hidden="true" />
+              <div className={styles.goalLeft} aria-hidden="true" />
+              <div className={styles.goalRight} aria-hidden="true" />
 
-          {pieces.map((p) => {
-            const left = `${p.pos.x * 100}%`
-            const top = `${p.pos.y * 100}%`
+              {pieces.map((p) => {
+                const left = `${p.pos.x * 100}%`
+                const top = `${p.pos.y * 100}%`
 
-            if (p.type === 'ball') {
-              return (
-                <div
-                  key={p.id}
-                  className={styles.ball}
-                  style={{ left, top }}
-                  role="button"
-                  tabIndex={0}
-                  onPointerDown={(e) => onPiecePointerDown(e, p.id)}
-                  aria-label="Ball"
-                />
-              )
-            }
-
-            const cls =
-              p.team === 'offense' ? styles.playerOffense : styles.playerDefense
-            const isHighlighted = highlightedPlayerIds.has(p.id)
-
-            const ariaPlayer = p.name
-              ? `${p.team} player ${p.label}, ${p.name}`
-              : `${p.team} player ${p.label}`
-
-            return (
-              <div
-                key={p.id}
-                className={styles.playerWrap}
-                style={{ left, top }}
-              >
-                <div
-                  className={`${styles.player} ${cls} ${isHighlighted ? styles.playerHighlighted : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={isHighlighted}
-                  onPointerDown={(e) => onPiecePointerDown(e, p.id)}
-                  onDoubleClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (annotateTool !== 'move') return
-                    togglePlayerHighlight(p.id)
-                  }}
-                  aria-label={ariaPlayer}
-                >
-                  {p.label}
-                </div>
-                {p.name ? (
-                  <div className={styles.playerNameTag} title={p.name}>
-                    {p.name}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
-
-          <svg
-            className={`${styles.annotationSvg} ${annotateTool !== 'move' ? styles.annotationSvgInteractive : ''} ${annotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
-            viewBox="0 0 1 1"
-            preserveAspectRatio="none"
-            aria-hidden={annotateTool === 'move'}
-            onPointerDown={handleSvgPointerDown}
-          >
-            {annotations.map((a) => {
-              const sw = strokeLevelToSvgWidth(a.strokeLevel)
-              if (a.kind === 'line') {
-                return (
-                  <line
-                    key={a.id}
-                    x1={a.x1}
-                    y1={a.y1}
-                    x2={a.x2}
-                    y2={a.y2}
-                    stroke={a.color}
-                    strokeWidth={sw}
-                    strokeLinecap="round"
-                  />
-                )
-              }
-              if (a.kind === 'circle') {
-                return (
-                  <circle
-                    key={a.id}
-                    cx={a.cx}
-                    cy={a.cy}
-                    r={a.r}
-                    fill="none"
-                    stroke={a.color}
-                    strokeWidth={sw}
-                  />
-                )
-              }
-              if (a.kind === 'freeDraw') {
-                return (
-                  <polyline
-                    key={a.id}
-                    points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
-                    fill="none"
-                    stroke={a.color}
-                    strokeWidth={sw}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                )
-              }
-              const head = Math.max(0.012, sw * 5)
-              const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
-              const lx2 = a.x2 - head * Math.cos(ang)
-              const ly2 = a.y2 - head * Math.sin(ang)
-              return (
-                <g key={a.id}>
-                  <line
-                    x1={a.x1}
-                    y1={a.y1}
-                    x2={lx2}
-                    y2={ly2}
-                    stroke={a.color}
-                    strokeWidth={sw}
-                    strokeLinecap="round"
-                  />
-                  <polygon
-                    points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
-                    fill={a.color}
-                  />
-                </g>
-              )
-            })}
-            {annotationDraft &&
-              (annotationDraft.kind === 'circle' ? (
-                <circle
-                  cx={annotationDraft.cx}
-                  cy={annotationDraft.cy}
-                  r={annotationDraft.r}
-                  fill="none"
-                  stroke={annotationColor}
-                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                  opacity={0.88}
-                />
-              ) : annotationDraft.kind === 'line' ? (
-                <line
-                  x1={annotationDraft.x1}
-                  y1={annotationDraft.y1}
-                  x2={annotationDraft.x2}
-                  y2={annotationDraft.y2}
-                  stroke={annotationColor}
-                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                  strokeLinecap="round"
-                  opacity={0.88}
-                />
-              ) : annotationDraft.kind === 'freeDraw' ? (
-                <polyline
-                  points={annotationDraft.points
-                    .map((point) => `${point.x},${point.y}`)
-                    .join(' ')}
-                  fill="none"
-                  stroke={annotationColor}
-                  strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={0.88}
-                />
-              ) : (
-                (() => {
-                  const d = annotationDraft
-                  const sw = strokeLevelToSvgWidth(strokeLevel)
-                  const head = Math.max(0.012, sw * 5)
-                  const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
-                  const lx2 = d.x2 - head * Math.cos(ang)
-                  const ly2 = d.y2 - head * Math.sin(ang)
+                if (p.type === 'ball') {
                   return (
-                    <g opacity={0.88}>
+                    <div
+                      key={p.id}
+                      className={styles.ball}
+                      style={{ left, top }}
+                      role="button"
+                      tabIndex={0}
+                      onPointerDown={(e) => onPiecePointerDown(e, p.id)}
+                      aria-label="Ball"
+                    />
+                  )
+                }
+
+                const cls =
+                  p.team === 'offense' ? styles.playerOffense : styles.playerDefense
+                const isHighlighted = highlightedPlayerIds.has(p.id)
+
+                const ariaPlayer = p.name
+                  ? `${p.team} player ${p.label}, ${p.name}`
+                  : `${p.team} player ${p.label}`
+
+                return (
+                  <div
+                    key={p.id}
+                    className={styles.playerWrap}
+                    style={{ left, top }}
+                  >
+                    <div
+                      className={`${styles.player} ${cls} ${isHighlighted ? styles.playerHighlighted : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isHighlighted}
+                      onPointerDown={(e) => onPiecePointerDown(e, p.id)}
+                      onDoubleClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (annotateTool !== 'move') return
+                        togglePlayerHighlight(p.id)
+                      }}
+                      aria-label={ariaPlayer}
+                    >
+                      {p.label}
+                    </div>
+                    {p.name ? (
+                      <div className={styles.playerNameTag} title={p.name}>
+                        {p.name}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+
+              <svg
+                className={`${styles.annotationSvg} ${annotateTool !== 'move' ? styles.annotationSvgInteractive : ''} ${annotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                aria-hidden={annotateTool === 'move'}
+                onPointerDown={handleSvgPointerDown}
+              >
+                {annotations.map((a) => {
+                  const sw = strokeLevelToSvgWidth(a.strokeLevel)
+                  if (a.kind === 'line') {
+                    return (
                       <line
-                        x1={d.x1}
-                        y1={d.y1}
+                        key={a.id}
+                        x1={a.x1}
+                        y1={a.y1}
+                        x2={a.x2}
+                        y2={a.y2}
+                        stroke={a.color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                      />
+                    )
+                  }
+                  if (a.kind === 'circle') {
+                    return (
+                      <circle
+                        key={a.id}
+                        cx={a.cx}
+                        cy={a.cy}
+                        r={a.r}
+                        fill="none"
+                        stroke={a.color}
+                        strokeWidth={sw}
+                      />
+                    )
+                  }
+                  if (a.kind === 'freeDraw') {
+                    return (
+                      <polyline
+                        key={a.id}
+                        points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                        fill="none"
+                        stroke={a.color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )
+                  }
+                  const head = Math.max(0.012, sw * 5)
+                  const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
+                  const lx2 = a.x2 - head * Math.cos(ang)
+                  const ly2 = a.y2 - head * Math.sin(ang)
+                  return (
+                    <g key={a.id}>
+                      <line
+                        x1={a.x1}
+                        y1={a.y1}
                         x2={lx2}
                         y2={ly2}
-                        stroke={annotationColor}
+                        stroke={a.color}
                         strokeWidth={sw}
                         strokeLinecap="round"
                       />
                       <polygon
-                        points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
-                        fill={annotationColor}
+                        points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
+                        fill={a.color}
                       />
                     </g>
                   )
-                })()
-              ))}
-          </svg>
+                })}
+                {annotationDraft &&
+                  (annotationDraft.kind === 'circle' ? (
+                    <circle
+                      cx={annotationDraft.cx}
+                      cy={annotationDraft.cy}
+                      r={annotationDraft.r}
+                      fill="none"
+                      stroke={annotationColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                      opacity={0.88}
+                    />
+                  ) : annotationDraft.kind === 'line' ? (
+                    <line
+                      x1={annotationDraft.x1}
+                      y1={annotationDraft.y1}
+                      x2={annotationDraft.x2}
+                      y2={annotationDraft.y2}
+                      stroke={annotationColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                      strokeLinecap="round"
+                      opacity={0.88}
+                    />
+                  ) : annotationDraft.kind === 'freeDraw' ? (
+                    <polyline
+                      points={annotationDraft.points
+                        .map((point) => `${point.x},${point.y}`)
+                        .join(' ')}
+                      fill="none"
+                      stroke={annotationColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.88}
+                    />
+                  ) : (
+                    (() => {
+                      const d = annotationDraft
+                      const sw = strokeLevelToSvgWidth(strokeLevel)
+                      const head = Math.max(0.012, sw * 5)
+                      const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
+                      const lx2 = d.x2 - head * Math.cos(ang)
+                      const ly2 = d.y2 - head * Math.sin(ang)
+                      return (
+                        <g opacity={0.88}>
+                          <line
+                            x1={d.x1}
+                            y1={d.y1}
+                            x2={lx2}
+                            y2={ly2}
+                            stroke={annotationColor}
+                            strokeWidth={sw}
+                            strokeLinecap="round"
+                          />
+                          <polygon
+                            points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
+                            fill={annotationColor}
+                          />
+                        </g>
+                      )
+                    })()
+                  ))}
+              </svg>
+            </div>
           </div>
+          {activeTab === 'team' ? (
+            <div className={styles.teamTabletToolsRail} aria-label="Team organization tools">
+              <div className={styles.teamTabletToolSlot}>
+                <button
+                  type="button"
+                  className={`${styles.iconRailBtn} ${teamTabletPopover === 'players' ? styles.iconRailBtnActive : ''}`}
+                  onClick={() => toggleTeamTabletPopover('players')}
+                  aria-label="Players per team"
+                  title="Players per team"
+                >
+                  <span aria-hidden>👥</span>
+                </button>
+                {teamTabletPopover === 'players' ? (
+                  <div className={styles.teamTabletPopover} aria-label="Players per team options">
+                    {[7, 9, 11].map((size) => (
+                      <button
+                        key={`team-size-${size}`}
+                        type="button"
+                        className={`${styles.teamTabletOptionBtn} ${teamSize === size ? styles.teamTabletOptionBtnActive : ''}`}
+                        onClick={() => handleTeamSizeTabletSelect(size as 7 | 9 | 11)}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className={styles.teamTabletToolSlot}>
+                <button
+                  type="button"
+                  className={`${styles.iconRailBtn} ${teamTabletPopover === 'offenseFormation' ? styles.iconRailBtnActive : ''}`}
+                  onClick={() => toggleTeamTabletPopover('offenseFormation')}
+                  aria-label="Offense formation"
+                  title="Offense formation"
+                >
+                  <span aria-hidden>O</span>
+                </button>
+                {teamTabletPopover === 'offenseFormation' ? (
+                  <div className={styles.teamTabletPopover} aria-label="Offense formation options">
+                    {formationOptions.map((formation) => (
+                      <button
+                        key={`offense-formation-${formation}`}
+                        type="button"
+                        className={`${styles.teamTabletOptionBtn} ${offenseFormation === formation ? styles.teamTabletOptionBtnActive : ''}`}
+                        onClick={() => handleOffenseFormationTabletSelect(formation)}
+                      >
+                        {formation}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className={styles.teamTabletToolSlot}>
+                <button
+                  type="button"
+                  className={`${styles.iconRailBtn} ${teamTabletPopover === 'defenseFormation' ? styles.iconRailBtnActive : ''}`}
+                  onClick={() => toggleTeamTabletPopover('defenseFormation')}
+                  aria-label="Defense formation"
+                  title="Defense formation"
+                >
+                  <span aria-hidden>D</span>
+                </button>
+                {teamTabletPopover === 'defenseFormation' ? (
+                  <div className={styles.teamTabletPopover} aria-label="Defense formation options">
+                    {formationOptions.map((formation) => (
+                      <button
+                        key={`defense-formation-${formation}`}
+                        type="button"
+                        className={`${styles.teamTabletOptionBtn} ${defenseFormation === formation ? styles.teamTabletOptionBtnActive : ''}`}
+                        onClick={() => handleDefenseFormationTabletSelect(formation)}
+                      >
+                        {formation}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={reset}
+                aria-label="Reset positions"
+                title="Reset positions"
+              >
+                <span aria-hidden>↺</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }

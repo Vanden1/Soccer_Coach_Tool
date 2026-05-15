@@ -110,6 +110,10 @@
   display: flex;
 }
 
+.teamDesktopControls {
+  display: flex;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -531,6 +535,23 @@
   height: 100%;
 }
 
+.tabletWorkspace {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.mainContent {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(8px, 1.8vh, 14px);
+}
+
 .playVideoWorkspace {
   width: 100%;
   min-width: 0;
@@ -538,9 +559,61 @@
   height: 100%;
 }
 
-.playVideoTabletNavRail,
+.tabletNavRail,
 .playVideoTabletToolsRail {
   display: none;
+}
+
+.teamWorkspace {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.teamTabletToolsRail {
+  display: none;
+}
+
+.teamTabletToolSlot {
+  position: relative;
+}
+
+.teamTabletPopover {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent);
+  max-width: min(76vw, 620px);
+  overflow-x: auto;
+  z-index: 10;
+}
+
+.teamTabletOptionBtn {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.teamTabletOptionBtnActive {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
 }
 
 .iconRailBtn {
@@ -1120,9 +1193,40 @@
 }
 
 @media (pointer: coarse) and (min-width: 700px) {
+  .wrapper {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+  }
+
   .wrapperVideoMode {
     grid-template-rows: minmax(0, 1fr);
     gap: 0;
+  }
+
+  .wrapperTeamMode .tabShell {
+    display: none;
+  }
+
+  .tabletWorkspace {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .tabletNavRail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+  }
+
+  .mainContent {
+    gap: 8px;
+  }
+
+  .tabList {
+    display: none;
   }
 
   .wrapperVideoMode .tabShell {
@@ -1131,13 +1235,39 @@
 
   .playVideoWorkspace {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     align-items: stretch;
   }
 
-  .playVideoTabletNavRail,
+  .teamWorkspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .teamWorkspace .fieldOuter {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .teamDesktopControls {
+    display: none;
+  }
+
+  .teamLegend {
+    display: none;
+  }
+
   .playVideoTabletToolsRail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+  }
+
+  .teamTabletToolsRail {
     display: flex;
     flex-direction: column;
     gap: 8px;

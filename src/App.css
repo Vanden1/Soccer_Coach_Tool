@@ -409,3 +409,63 @@
     font-size: 16px;
   }
 }
+
+@media (pointer: coarse) and (min-width: 700px) {
+  .topbar {
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding-top: max(6px, env(safe-area-inset-top, 0px));
+    padding-bottom: 6px;
+    padding-left: max(clamp(10px, 2.4vw, 14px), env(safe-area-inset-left, 0px));
+    padding-right: max(clamp(10px, 2.4vw, 14px), env(safe-area-inset-right, 0px));
+  }
+
+  .titleCompactTablet {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .titleCompactTablet .kicker {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .titleCompactTablet .h1 {
+    font-size: clamp(1rem, 2.4vw, 1.15rem);
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .topbarActions {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .topbarActions .tutorialTrigger,
+  .topbarActions .authSecondaryBtn {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  .topbarActions .tutorialTrigger {
+    border-width: 1px;
+    box-shadow: none;
+  }
+
+  .topbarActions .themeToggleLabel {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  .topbarActions .select {
+    min-height: 34px;
+    font-size: 13px;
+    padding: 6px 30px 6px 10px;
+  }
+}
