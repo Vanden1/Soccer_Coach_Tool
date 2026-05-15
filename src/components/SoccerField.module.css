@@ -106,6 +106,10 @@
   padding: 10px 12px;
 }
 
+.videoDesktopControls {
+  display: flex;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -525,6 +529,68 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
+}
+
+.playVideoWorkspace {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.playVideoTabletNavRail,
+.playVideoTabletToolsRail {
+  display: none;
+}
+
+.iconRailBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 120ms ease;
+}
+
+.iconRailBtn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent-bg) 45%, var(--surface-strong));
+}
+
+.iconRailBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.iconRailBtn:active {
+  transform: translateY(1px);
+}
+
+.iconRailBtnActive {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.videoColorPopover {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.videoRailThicknessRange {
+  width: 44px;
+  height: 120px;
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 
 .videoField {
@@ -1015,6 +1081,12 @@
     --video-controls-safe-area: 132px;
   }
 
+  .iconRailBtn {
+    width: 46px;
+    min-height: 46px;
+    font-size: 19px;
+  }
+
   .videoControlsBar {
     bottom: 10px;
     gap: 6px;
@@ -1044,5 +1116,40 @@
     min-height: 44px;
     padding: 10px 10px;
     font-size: 16px;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 700px) {
+  .wrapperVideoMode {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .wrapperVideoMode .tabShell {
+    display: none;
+  }
+
+  .playVideoWorkspace {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .playVideoTabletNavRail,
+  .playVideoTabletToolsRail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+  }
+
+  .videoDesktopControls {
+    display: none;
+  }
+
+  .videoFieldOuter {
+    min-height: 0;
+    height: 100%;
   }
 }

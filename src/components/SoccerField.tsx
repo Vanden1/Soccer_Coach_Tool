@@ -113,12 +113,6 @@ function formatMediaTime(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`
 }
 
-function truncateLabel(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text
-  if (maxChars <= 1) return text.slice(0, maxChars)
-  return `${text.slice(0, maxChars - 1)}…`
-}
-
 function offsetAnnotation(
   annotation: FieldAnnotation,
   dx: number,
@@ -479,6 +473,23 @@ export type SoccerFieldTab =
   | 'annotations'
   | 'playVideo'
 
+const TAB_ITEMS: ReadonlyArray<{ id: SoccerFieldTab; label: string; icon: string }> = [
+  { id: 'team', label: 'Team Organization', icon: '⚽' },
+  { id: 'playerNames', label: 'Player names', icon: '👤' },
+  { id: 'recordings', label: 'Recordings', icon: '⏺' },
+  { id: 'annotations', label: 'Annotations', icon: '✏' },
+  { id: 'playVideo', label: 'Play Video', icon: '▶' },
+]
+
+const TOOL_ITEMS: ReadonlyArray<{ id: AnnotateTool; label: string; icon: string }> = [
+  { id: 'move', label: 'Move', icon: '✋' },
+  { id: 'line', label: 'Line', icon: '／' },
+  { id: 'freeDraw', label: 'Free Draw', icon: '✎' },
+  { id: 'circle', label: 'Circle', icon: '◯' },
+  { id: 'arrow', label: 'Arrow', icon: '➤' },
+  { id: 'erase', label: 'Erase', icon: '⌫' },
+]
+
 type SoccerFieldProps = {
   userId: string
   onActiveTabChange?: (tab: SoccerFieldTab) => void
@@ -561,7 +572,6 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     useState<AnnotationDraft | null>(null)
   const videoAnnotationDraftRef = useRef<AnnotationDraft | null>(null)
   const [videoSourceUrl, setVideoSourceUrl] = useState<string | null>(null)
-  const [videoFileName, setVideoFileName] = useState('')
   const videoObjectUrlRef = useRef<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const videoFieldRef = useRef<HTMLDivElement | null>(null)
@@ -570,6 +580,8 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1)
+  const [videoColorPaletteOpen, setVideoColorPaletteOpen] = useState(false)
+  const [videoThicknessOpen, setVideoThicknessOpen] = useState(false)
   const activeVideoMarkupColor = toVideoMarkupColor(annotationColor)
   const activePenPointersRef = useRef<Set<number>>(new Set())
   const selectedOffenseId = `offense-${selectedOffenseNumber}` as Exclude<
@@ -630,6 +642,8 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
       setVideoAnnotations([])
       setVideoAnnotationDraft(null)
       videoAnnotationDraftRef.current = null
+      setVideoColorPaletteOpen(false)
+      setVideoThicknessOpen(false)
     }
   }, [activeTab])
 
@@ -1894,6 +1908,11 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     videoFileInputRef.current?.click()
   }
 
+  function handleVideoColorSelect(color: VideoMarkupColor) {
+    setAnnotationColor(color)
+    setVideoColorPaletteOpen(false)
+  }
+
   function handleVideoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1903,7 +1922,6 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     const objectUrl = URL.createObjectURL(file)
     videoObjectUrlRef.current = objectUrl
     setVideoSourceUrl(objectUrl)
-    setVideoFileName(file.name)
     setIsVideoPlaying(false)
     setVideoCurrentTime(0)
     setVideoDuration(0)
@@ -1926,66 +1944,21 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
           role="tablist"
           aria-label="Soccer coach sections"
         >
-          <button
-            type="button"
-            id="tab-team"
-            role="tab"
-            aria-selected={activeTab === 'team'}
-            aria-controls="panel-team"
-            tabIndex={activeTab === 'team' ? 0 : -1}
-            className={`${styles.tab} ${activeTab === 'team' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('team')}
-          >
-            Team Organization
-          </button>
-          <button
-            type="button"
-            id="tab-player-names"
-            role="tab"
-            aria-selected={activeTab === 'playerNames'}
-            aria-controls="panel-player-names"
-            tabIndex={activeTab === 'playerNames' ? 0 : -1}
-            className={`${styles.tab} ${activeTab === 'playerNames' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('playerNames')}
-          >
-            Player names
-          </button>
-          <button
-            type="button"
-            id="tab-recordings"
-            role="tab"
-            aria-selected={activeTab === 'recordings'}
-            aria-controls="panel-recordings"
-            tabIndex={activeTab === 'recordings' ? 0 : -1}
-            className={`${styles.tab} ${activeTab === 'recordings' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('recordings')}
-          >
-            Recordings
-          </button>
-          <button
-            type="button"
-            id="tab-annotations"
-            role="tab"
-            aria-selected={activeTab === 'annotations'}
-            aria-controls="panel-annotations"
-            tabIndex={activeTab === 'annotations' ? 0 : -1}
-            className={`${styles.tab} ${activeTab === 'annotations' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('annotations')}
-          >
-            Annotations
-          </button>
-          <button
-            type="button"
-            id="tab-play-video"
-            role="tab"
-            aria-selected={activeTab === 'playVideo'}
-            aria-controls="panel-play-video"
-            tabIndex={activeTab === 'playVideo' ? 0 : -1}
-            className={`${styles.tab} ${activeTab === 'playVideo' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('playVideo')}
-          >
-            Play Video
-          </button>
+          {TAB_ITEMS.map((tabItem) => (
+            <button
+              key={tabItem.id}
+              type="button"
+              id={`tab-${tabItem.id}`}
+              role="tab"
+              aria-selected={activeTab === tabItem.id}
+              aria-controls={`panel-${tabItem.id}`}
+              tabIndex={activeTab === tabItem.id ? 0 : -1}
+              className={`${styles.tab} ${activeTab === tabItem.id ? styles.tabActive : ''}`}
+              onClick={() => setActiveTab(tabItem.id)}
+            >
+              {tabItem.label}
+            </button>
+          ))}
         </div>
 
         <div
@@ -2058,9 +2031,9 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
         </div>
 
         <div
-          id="panel-player-names"
+          id="panel-playerNames"
           role="tabpanel"
-          aria-labelledby="tab-player-names"
+          aria-labelledby="tab-playerNames"
           aria-hidden={activeTab !== 'playerNames'}
           className={`${styles.tabPanel} ${activeTab !== 'playerNames' ? styles.tabPanelHidden : ''}`}
         >
@@ -2264,23 +2237,14 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
         >
           <div className={styles.tabPanelInner}>
             <div className={styles.toolGroup}>
-              {(
-                [
-                  ['move', 'Move'],
-                  ['line', 'Line'],
-                  ['freeDraw', 'Free Draw'],
-                  ['circle', 'Circle'],
-                  ['arrow', 'Arrow'],
-                  ['erase', 'Erase'],
-                ] as const
-              ).map(([id, label]) => (
+              {TOOL_ITEMS.map((toolItem) => (
                 <button
-                  key={id}
+                  key={toolItem.id}
                   type="button"
-                  className={`${styles.toolBtn} ${annotateTool === id ? styles.toolBtnActive : ''}`}
-                  onClick={() => setAnnotateTool(id)}
+                  className={`${styles.toolBtn} ${annotateTool === toolItem.id ? styles.toolBtnActive : ''}`}
+                  onClick={() => setAnnotateTool(toolItem.id)}
                 >
-                  {label}
+                  {toolItem.label}
                 </button>
               ))}
             </div>
@@ -2331,13 +2295,15 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
         </div>
 
         <div
-          id="panel-play-video"
+          id="panel-playVideo"
           role="tabpanel"
-          aria-labelledby="tab-play-video"
+          aria-labelledby="tab-playVideo"
           aria-hidden={activeTab !== 'playVideo'}
           className={`${styles.tabPanel} ${activeTab !== 'playVideo' ? styles.tabPanelHidden : ''}`}
         >
-          <div className={`${styles.tabPanelInner} ${styles.videoTabPanelInner}`}>
+          <div
+            className={`${styles.tabPanelInner} ${styles.videoTabPanelInner} ${styles.videoDesktopControls}`}
+          >
             <button type="button" className={styles.btn} onClick={triggerVideoPicker}>
               Upload video
             </button>
@@ -2348,29 +2314,15 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
               className={styles.videoFileInput}
               onChange={handleVideoFileSelected}
             />
-            <span className={styles.label}>
-              {videoFileName
-                ? `Loaded: ${truncateLabel(videoFileName, 20)}`
-                : 'No video selected'}
-            </span>
             <div className={styles.toolGroup}>
-              {(
-                [
-                  ['move', 'Move'],
-                  ['line', 'Line'],
-                  ['freeDraw', 'Free Draw'],
-                  ['circle', 'Circle'],
-                  ['arrow', 'Arrow'],
-                  ['erase', 'Erase'],
-                ] as const
-              ).map(([id, label]) => (
+              {TOOL_ITEMS.map((toolItem) => (
                 <button
-                  key={id}
+                  key={toolItem.id}
                   type="button"
-                  className={`${styles.toolBtn} ${videoAnnotateTool === id ? styles.toolBtnActive : ''}`}
-                  onClick={() => setVideoAnnotateTool(id)}
+                  className={`${styles.toolBtn} ${videoAnnotateTool === toolItem.id ? styles.toolBtnActive : ''}`}
+                  onClick={() => setVideoAnnotateTool(toolItem.id)}
                 >
-                  {label}
+                  {toolItem.label}
                 </button>
               ))}
             </div>
@@ -2410,222 +2362,322 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
         </div>
       </div>
       {activeTab === 'playVideo' ? (
-        <div className={styles.videoFieldOuter}>
+        <div className={styles.playVideoWorkspace}>
           <div
-            className={styles.videoField}
-            ref={videoFieldRef}
-            onPointerDownCapture={handleVideoFieldPointerDownCapture}
+            className={styles.playVideoTabletNavRail}
+            role="tablist"
+            aria-label="Play Video sections"
           >
-            {videoSourceUrl ? (
-              <video
-                ref={videoRef}
-                className={styles.videoPlayer}
-                src={videoSourceUrl}
-                playsInline
-              />
-            ) : (
-              <div className={styles.videoPlaceholder}>
-                Upload a local video file (e.g. mp4) to start playback.
-              </div>
-            )}
-            {videoSourceUrl ? (
-              <div className={styles.videoControlsBar}>
-                <div className={styles.videoButtonsRow}>
-                  <button
-                    type="button"
-                    className={styles.videoControlBtn}
-                    onClick={() => seekVideoBySeconds(-10)}
-                  >
-                    -10s
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.videoControlBtn}
-                    onClick={toggleVideoPlayback}
-                  >
-                    {isVideoPlaying ? 'Pause' : 'Play'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.videoControlBtn}
-                    onClick={() => seekVideoBySeconds(10)}
-                  >
-                    +10s
-                  </button>
-                  <div className={styles.videoSpeedRow}>
-                    <label className={styles.videoSpeedLabel} htmlFor="video-speed-select">
-                      Speed
-                    </label>
-                    <select
-                      id="video-speed-select"
-                      className={styles.videoSpeedSelect}
-                      value={videoPlaybackRate}
-                      onChange={handleVideoPlaybackRateChange}
-                      aria-label="Playback speed"
+            {TAB_ITEMS.map((tabItem) => (
+              <button
+                key={`video-nav-${tabItem.id}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tabItem.id}
+                tabIndex={activeTab === tabItem.id ? 0 : -1}
+                className={`${styles.iconRailBtn} ${activeTab === tabItem.id ? styles.iconRailBtnActive : ''}`}
+                onClick={() => setActiveTab(tabItem.id)}
+                aria-label={tabItem.label}
+                title={tabItem.label}
+              >
+                <span aria-hidden>{tabItem.icon}</span>
+              </button>
+            ))}
+          </div>
+          <div className={styles.videoFieldOuter}>
+            <div
+              className={styles.videoField}
+              ref={videoFieldRef}
+              onPointerDownCapture={handleVideoFieldPointerDownCapture}
+            >
+              {videoSourceUrl ? (
+                <video
+                  ref={videoRef}
+                  className={styles.videoPlayer}
+                  src={videoSourceUrl}
+                  playsInline
+                />
+              ) : (
+                <div className={styles.videoPlaceholder}>
+                  Upload a local video file (e.g. mp4) to start playback.
+                </div>
+              )}
+              {videoSourceUrl ? (
+                <div className={styles.videoControlsBar}>
+                  <div className={styles.videoButtonsRow}>
+                    <button
+                      type="button"
+                      className={styles.videoControlBtn}
+                      onClick={() => seekVideoBySeconds(-10)}
                     >
-                      {VIDEO_PLAYBACK_RATES.map((rate) => (
-                        <option key={rate} value={rate}>
-                          {rate}x
-                        </option>
-                      ))}
-                    </select>
+                      -10s
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.videoControlBtn}
+                      onClick={toggleVideoPlayback}
+                    >
+                      {isVideoPlaying ? 'Pause' : 'Play'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.videoControlBtn}
+                      onClick={() => seekVideoBySeconds(10)}
+                    >
+                      +10s
+                    </button>
+                    <div className={styles.videoSpeedRow}>
+                      <label className={styles.videoSpeedLabel} htmlFor="video-speed-select">
+                        Speed
+                      </label>
+                      <select
+                        id="video-speed-select"
+                        className={styles.videoSpeedSelect}
+                        value={videoPlaybackRate}
+                        onChange={handleVideoPlaybackRateChange}
+                        aria-label="Playback speed"
+                      >
+                        {VIDEO_PLAYBACK_RATES.map((rate) => (
+                          <option key={rate} value={rate}>
+                            {rate}x
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className={styles.videoTimelineRow}>
+                    <span className={styles.videoTimeText}>
+                      {formatMediaTime(videoCurrentTime)}
+                    </span>
+                    <input
+                      type="range"
+                      className={styles.videoTimeline}
+                      min={0}
+                      max={Math.max(videoDuration, 0.001)}
+                      step={0.1}
+                      value={Math.min(videoCurrentTime, Math.max(videoDuration, 0.001))}
+                      onInput={handleVideoTimelineInput}
+                      onChange={handleVideoTimelineChange}
+                      disabled={videoDuration <= 0}
+                      aria-label="Video timeline"
+                    />
+                    <span className={styles.videoTimeText}>
+                      {formatMediaTime(videoDuration)}
+                    </span>
                   </div>
                 </div>
-                <div className={styles.videoTimelineRow}>
-                  <span className={styles.videoTimeText}>
-                    {formatMediaTime(videoCurrentTime)}
-                  </span>
-                  <input
-                    type="range"
-                    className={styles.videoTimeline}
-                    min={0}
-                    max={Math.max(videoDuration, 0.001)}
-                    step={0.1}
-                    value={Math.min(videoCurrentTime, Math.max(videoDuration, 0.001))}
-                    onInput={handleVideoTimelineInput}
-                    onChange={handleVideoTimelineChange}
-                    disabled={videoDuration <= 0}
-                    aria-label="Video timeline"
-                  />
-                  <span className={styles.videoTimeText}>
-                    {formatMediaTime(videoDuration)}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-            <svg
-              className={`${styles.videoAnnotationSvg} ${videoAnnotateTool !== 'move' ? styles.videoAnnotationSvgInteractive : ''} ${videoAnnotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
-              viewBox="0 0 1 1"
-              preserveAspectRatio="none"
-              aria-hidden={videoAnnotateTool === 'move'}
-              onPointerDown={handleVideoSvgPointerDown}
-            >
-              {videoAnnotations.map((a) => {
-                const sw = strokeLevelToSvgWidth(a.strokeLevel)
-                if (a.kind === 'line') {
+              ) : null}
+              <svg
+                className={`${styles.videoAnnotationSvg} ${videoAnnotateTool !== 'move' ? styles.videoAnnotationSvgInteractive : ''} ${videoAnnotateTool === 'erase' ? styles.annotationSvgErase : ''}`}
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                aria-hidden={videoAnnotateTool === 'move'}
+                onPointerDown={handleVideoSvgPointerDown}
+              >
+                {videoAnnotations.map((a) => {
+                  const sw = strokeLevelToSvgWidth(a.strokeLevel)
+                  if (a.kind === 'line') {
+                    return (
+                      <line
+                        key={a.id}
+                        x1={a.x1}
+                        y1={a.y1}
+                        x2={a.x2}
+                        y2={a.y2}
+                        stroke={a.color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                      />
+                    )
+                  }
+                  if (a.kind === 'circle') {
+                    return (
+                      <circle
+                        key={a.id}
+                        cx={a.cx}
+                        cy={a.cy}
+                        r={a.r}
+                        fill="none"
+                        stroke={a.color}
+                        strokeWidth={sw}
+                      />
+                    )
+                  }
+                  if (a.kind === 'freeDraw') {
+                    return (
+                      <polyline
+                        key={a.id}
+                        points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                        fill="none"
+                        stroke={a.color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )
+                  }
+                  const head = Math.max(0.012, sw * 5)
+                  const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
+                  const lx2 = a.x2 - head * Math.cos(ang)
+                  const ly2 = a.y2 - head * Math.sin(ang)
                   return (
-                    <line
-                      key={a.id}
-                      x1={a.x1}
-                      y1={a.y1}
-                      x2={a.x2}
-                      y2={a.y2}
-                      stroke={a.color}
-                      strokeWidth={sw}
-                      strokeLinecap="round"
-                    />
+                    <g key={a.id}>
+                      <line
+                        x1={a.x1}
+                        y1={a.y1}
+                        x2={lx2}
+                        y2={ly2}
+                        stroke={a.color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                      />
+                      <polygon
+                        points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
+                        fill={a.color}
+                      />
+                    </g>
                   )
-                }
-                if (a.kind === 'circle') {
-                  return (
+                })}
+                {videoAnnotationDraft &&
+                  (videoAnnotationDraft.kind === 'circle' ? (
                     <circle
-                      key={a.id}
-                      cx={a.cx}
-                      cy={a.cy}
-                      r={a.r}
+                      cx={videoAnnotationDraft.cx}
+                      cy={videoAnnotationDraft.cy}
+                      r={videoAnnotationDraft.r}
                       fill="none"
-                      stroke={a.color}
-                      strokeWidth={sw}
+                      stroke={activeVideoMarkupColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                      opacity={0.88}
                     />
-                  )
-                }
-                if (a.kind === 'freeDraw') {
-                  return (
+                  ) : videoAnnotationDraft.kind === 'line' ? (
+                    <line
+                      x1={videoAnnotationDraft.x1}
+                      y1={videoAnnotationDraft.y1}
+                      x2={videoAnnotationDraft.x2}
+                      y2={videoAnnotationDraft.y2}
+                      stroke={activeVideoMarkupColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
+                      strokeLinecap="round"
+                      opacity={0.88}
+                    />
+                  ) : videoAnnotationDraft.kind === 'freeDraw' ? (
                     <polyline
-                      key={a.id}
-                      points={a.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                      points={videoAnnotationDraft.points
+                        .map((point) => `${point.x},${point.y}`)
+                        .join(' ')}
                       fill="none"
-                      stroke={a.color}
-                      strokeWidth={sw}
+                      stroke={activeVideoMarkupColor}
+                      strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      opacity={0.88}
                     />
-                  )
-                }
-                const head = Math.max(0.012, sw * 5)
-                const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1)
-                const lx2 = a.x2 - head * Math.cos(ang)
-                const ly2 = a.y2 - head * Math.sin(ang)
-                return (
-                  <g key={a.id}>
-                    <line
-                      x1={a.x1}
-                      y1={a.y1}
-                      x2={lx2}
-                      y2={ly2}
-                      stroke={a.color}
-                      strokeWidth={sw}
-                      strokeLinecap="round"
-                    />
-                    <polygon
-                      points={arrowHeadPoints(a.x1, a.y1, a.x2, a.y2, head)}
-                      fill={a.color}
-                    />
-                  </g>
-                )
-              })}
-              {videoAnnotationDraft &&
-                (videoAnnotationDraft.kind === 'circle' ? (
-                  <circle
-                    cx={videoAnnotationDraft.cx}
-                    cy={videoAnnotationDraft.cy}
-                    r={videoAnnotationDraft.r}
-                    fill="none"
-                    stroke={activeVideoMarkupColor}
-                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                    opacity={0.88}
+                  ) : (
+                    (() => {
+                      const d = videoAnnotationDraft
+                      const sw = strokeLevelToSvgWidth(strokeLevel)
+                      const head = Math.max(0.012, sw * 5)
+                      const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
+                      const lx2 = d.x2 - head * Math.cos(ang)
+                      const ly2 = d.y2 - head * Math.sin(ang)
+                      return (
+                        <g opacity={0.88}>
+                          <line
+                            x1={d.x1}
+                            y1={d.y1}
+                            x2={lx2}
+                            y2={ly2}
+                            stroke={activeVideoMarkupColor}
+                            strokeWidth={sw}
+                            strokeLinecap="round"
+                          />
+                          <polygon
+                            points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
+                            fill={activeVideoMarkupColor}
+                          />
+                        </g>
+                      )
+                    })()
+                  ))}
+              </svg>
+            </div>
+          </div>
+          <div className={styles.playVideoTabletToolsRail} aria-label="Video tools">
+            <button
+              type="button"
+              className={styles.iconRailBtn}
+              onClick={triggerVideoPicker}
+              aria-label="Upload video"
+              title="Upload video"
+            >
+              <span aria-hidden>⤴</span>
+            </button>
+            {TOOL_ITEMS.map((toolItem) => (
+              <button
+                key={`video-tool-${toolItem.id}`}
+                type="button"
+                className={`${styles.iconRailBtn} ${videoAnnotateTool === toolItem.id ? styles.iconRailBtnActive : ''}`}
+                onClick={() => setVideoAnnotateTool(toolItem.id)}
+                aria-label={toolItem.label}
+                title={toolItem.label}
+              >
+                <span aria-hidden>{toolItem.icon}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`${styles.iconRailBtn} ${videoColorPaletteOpen ? styles.iconRailBtnActive : ''}`}
+              onClick={() => setVideoColorPaletteOpen((prev) => !prev)}
+              aria-label="Choose markup color"
+              title="Choose markup color"
+            >
+              <span aria-hidden>🎨</span>
+            </button>
+            {videoColorPaletteOpen ? (
+              <div className={styles.videoColorPopover} aria-label="Video annotation colors">
+                {VIDEO_MARKUP_COLORS.map((c) => (
+                  <button
+                    key={`video-color-${c}`}
+                    type="button"
+                    className={`${styles.colorSwatch} ${activeVideoMarkupColor === c ? styles.colorSwatchActive : ''}`}
+                    style={{ background: c }}
+                    onClick={() => handleVideoColorSelect(c)}
+                    aria-label={`Use color ${c}`}
+                    title={c}
                   />
-                ) : videoAnnotationDraft.kind === 'line' ? (
-                  <line
-                    x1={videoAnnotationDraft.x1}
-                    y1={videoAnnotationDraft.y1}
-                    x2={videoAnnotationDraft.x2}
-                    y2={videoAnnotationDraft.y2}
-                    stroke={activeVideoMarkupColor}
-                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                    strokeLinecap="round"
-                    opacity={0.88}
-                  />
-                ) : videoAnnotationDraft.kind === 'freeDraw' ? (
-                  <polyline
-                    points={videoAnnotationDraft.points
-                      .map((point) => `${point.x},${point.y}`)
-                      .join(' ')}
-                    fill="none"
-                    stroke={activeVideoMarkupColor}
-                    strokeWidth={strokeLevelToSvgWidth(strokeLevel)}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity={0.88}
-                  />
-                ) : (
-                  (() => {
-                    const d = videoAnnotationDraft
-                    const sw = strokeLevelToSvgWidth(strokeLevel)
-                    const head = Math.max(0.012, sw * 5)
-                    const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1)
-                    const lx2 = d.x2 - head * Math.cos(ang)
-                    const ly2 = d.y2 - head * Math.sin(ang)
-                    return (
-                      <g opacity={0.88}>
-                        <line
-                          x1={d.x1}
-                          y1={d.y1}
-                          x2={lx2}
-                          y2={ly2}
-                          stroke={activeVideoMarkupColor}
-                          strokeWidth={sw}
-                          strokeLinecap="round"
-                        />
-                        <polygon
-                          points={arrowHeadPoints(d.x1, d.y1, d.x2, d.y2, head)}
-                          fill={activeVideoMarkupColor}
-                        />
-                      </g>
-                    )
-                  })()
                 ))}
-            </svg>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className={`${styles.iconRailBtn} ${videoThicknessOpen ? styles.iconRailBtnActive : ''}`}
+              onClick={() => setVideoThicknessOpen((prev) => !prev)}
+              aria-label="Toggle line thickness slider"
+              title="Toggle line thickness slider"
+            >
+              <span aria-hidden>≋</span>
+            </button>
+            {videoThicknessOpen ? (
+              <input
+                className={styles.videoRailThicknessRange}
+                type="range"
+                min={1}
+                max={16}
+                value={strokeLevel}
+                onChange={(e) => setStrokeLevel(Number(e.target.value))}
+                aria-label="Line thickness"
+              />
+            ) : null}
+            <button
+              type="button"
+              className={styles.iconRailBtn}
+              onClick={() => setVideoAnnotations([])}
+              disabled={videoAnnotations.length === 0}
+              aria-label="Clear markups"
+              title="Clear markups"
+            >
+              <span aria-hidden>🧹</span>
+            </button>
           </div>
         </div>
       ) : (
