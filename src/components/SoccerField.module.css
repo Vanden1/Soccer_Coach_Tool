@@ -114,6 +114,10 @@
   display: flex;
 }
 
+.recordingsDesktopControls {
+  display: flex;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -571,11 +575,27 @@
   height: 100%;
 }
 
+.recordingsWorkspace {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
 .teamTabletToolsRail {
   display: none;
 }
 
+.recordingsTabletToolsRail {
+  display: none;
+}
+
 .teamTabletToolSlot {
+  position: relative;
+}
+
+.recordingsTabletToolSlot {
   position: relative;
 }
 
@@ -597,6 +617,46 @@
   max-width: min(76vw, 620px);
   overflow-x: auto;
   z-index: 10;
+}
+
+.recordingsTabletPopover {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 6px;
+  width: min(33vw, 460px);
+  max-height: 50vh;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent);
+  overflow-y: auto;
+  z-index: 12;
+}
+
+.recordingsPlayOptionBtn {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  color: var(--text-h);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recordingsPlayOptionBtnActive {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
 }
 
 .teamTabletOptionBtn {
@@ -658,6 +718,56 @@
   line-height: 1;
   transform-origin: center;
   transition: transform 160ms ease;
+}
+
+.recordingsCreateOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 22;
+  padding: 12px;
+  background: color-mix(in srgb, #04060d 38%, transparent);
+}
+
+.recordingsCreateCard {
+  width: min(430px, 94vw);
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface-strong) 95%, transparent);
+  box-shadow: var(--shadow);
+}
+
+.recordingsCreateLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.recordingsCreateActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.recordingsToast {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 24;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 72%, var(--border-strong));
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  pointer-events: none;
 }
 
 .videoColorPopover {
@@ -1260,12 +1370,28 @@
     align-items: stretch;
   }
 
+  .recordingsWorkspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: stretch;
+  }
+
   .teamWorkspace .fieldOuter {
     height: 100%;
     min-height: 0;
   }
 
+  .recordingsWorkspace .fieldOuter {
+    height: 100%;
+    min-height: 0;
+  }
+
   .teamDesktopControls {
+    display: none;
+  }
+
+  .recordingsDesktopControls {
     display: none;
   }
 
@@ -1290,6 +1416,13 @@
     padding: 4px 0;
   }
 
+  .recordingsTabletToolsRail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+  }
+
   .videoDesktopControls {
     display: none;
   }
@@ -1299,11 +1432,6 @@
     height: 100%;
   }
 
-  .tabletNavRail .iconRailGlyph,
-  .playVideoTabletToolsRail .iconRailGlyph,
-  .teamTabletToolsRail .iconRailGlyph {
-    transform: rotate(-90deg);
-  }
 }
 
 @media (pointer: coarse) and (min-width: 700px) and (max-aspect-ratio: 16/9) {

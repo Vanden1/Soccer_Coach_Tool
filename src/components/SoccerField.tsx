@@ -496,6 +496,7 @@ type SoccerFieldProps = {
 }
 
 type TeamTabletPopover = 'players' | 'offenseFormation' | 'defenseFormation' | null
+type RecordingsTabletPopover = 'savedPlays' | null
 
 export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [teamSize, setTeamSize] = useState<7 | 9 | 11>(11)
@@ -585,6 +586,11 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
   const [videoColorPaletteOpen, setVideoColorPaletteOpen] = useState(false)
   const [videoThicknessOpen, setVideoThicknessOpen] = useState(false)
   const [teamTabletPopover, setTeamTabletPopover] = useState<TeamTabletPopover>(null)
+  const [recordingsTabletPopover, setRecordingsTabletPopover] =
+    useState<RecordingsTabletPopover>(null)
+  const [recordingsCreateOpen, setRecordingsCreateOpen] = useState(false)
+  const [recordingsCreateName, setRecordingsCreateName] = useState('')
+  const [recordingsToast, setRecordingsToast] = useState<string | null>(null)
   const activeVideoMarkupColor = toVideoMarkupColor(annotationColor)
   const activePenPointersRef = useRef<Set<number>>(new Set())
   const selectedOffenseId = `offense-${selectedOffenseNumber}` as Exclude<
@@ -655,6 +661,19 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
       setTeamTabletPopover(null)
     }
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'recordings') {
+      setRecordingsTabletPopover(null)
+      setRecordingsCreateOpen(false)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (!recordingsToast) return
+    const timeoutId = window.setTimeout(() => setRecordingsToast(null), 3000)
+    return () => window.clearTimeout(timeoutId)
+  }, [recordingsToast])
 
   useEffect(() => {
     onActiveTabChange?.(activeTab)
@@ -1720,15 +1739,29 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     })
   }
 
-  function handleCreatePlay() {
+  function handleCreatePlay(nameInput: string) {
+    const resolvedName = nameInput.trim() || `Play ${plays.length + 1}`
     const snaps = snapshotPieces(piecesRef.current)
     setIsRecording(true)
-    setDraftName('')
+    setDraftName(resolvedName)
     setDraftStart(snaps)
     setDraftSteps([])
     setLastSnapshot(snaps)
     setSelectedPlayId(null)
     setCurrentStepIndex(0)
+    setRecordingsTabletPopover(null)
+  }
+
+  function openCreatePlayPrompt() {
+    if (isRecording || playsLoading) return
+    setRecordingsCreateName(`Play ${plays.length + 1}`)
+    setRecordingsCreateOpen(true)
+    setRecordingsTabletPopover(null)
+  }
+
+  function handleCreatePlayPromptConfirm() {
+    handleCreatePlay(recordingsCreateName)
+    setRecordingsCreateOpen(false)
   }
 
   function handleSaveStep() {
@@ -1742,6 +1775,7 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
 
     setDraftSteps((prev) => [...prev, { movements }])
     setLastSnapshot(currentSnaps)
+    setRecordingsToast('Step saved successfully.')
   }
 
   function handleSavePlay() {
@@ -1770,6 +1804,8 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     setLastSnapshot(null)
     setSelectedPlayId(play.id)
     setCurrentStepIndex(0)
+    setRecordingsToast('Play saved successfully.')
+    setRecordingsTabletPopover(null)
   }
 
   function applyPlayStart(play: SavedPlay) {
@@ -1802,6 +1838,7 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
     if (play) {
       applyPlayStart(play)
     }
+    setRecordingsTabletPopover(null)
   }
 
   function runStep(
@@ -2193,26 +2230,14 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
           aria-hidden={activeTab !== 'recordings'}
           className={`${styles.tabPanel} ${activeTab !== 'recordings' ? styles.tabPanelHidden : ''}`}
         >
-          <div className={styles.tabPanelInner}>
+          <div className={`${styles.tabPanelInner} ${styles.recordingsDesktopControls}`}>
             {playsLoading ? (
               <span className={styles.label}>Loading plays from Firebase...</span>
             ) : null}
             {playsError ? <span className={styles.label}>{playsError}</span> : null}
-            {isRecording && (
-              <>
-                <span className={styles.label}>Play title</span>
-                <input
-                  className={styles.input}
-                  type="text"
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  placeholder={`Play ${plays.length + 1}`}
-                />
-              </>
-            )}
             <button
               className={styles.btn}
-              onClick={handleCreatePlay}
+              onClick={openCreatePlayPrompt}
               disabled={isRecording || playsLoading}
             >
               Create play
@@ -2719,7 +2744,11 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
           </div>
         </div>
       ) : (
-        <div className={styles.teamWorkspace}>
+        <div
+          className={
+            activeTab === 'recordings' ? styles.recordingsWorkspace : styles.teamWorkspace
+          }
+        >
           <div className={styles.fieldOuter}>
             <div
               className={styles.field}
@@ -3021,6 +3050,173 @@ export function SoccerField({ userId, onActiveTabChange }: SoccerFieldProps) {
                   ↺
                 </span>
               </button>
+            </div>
+          ) : activeTab === 'recordings' ? (
+            <div className={styles.recordingsTabletToolsRail} aria-label="Recording tools">
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={openCreatePlayPrompt}
+                disabled={isRecording || playsLoading}
+                aria-label="Create play"
+                title="Create play"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ＋
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handleSaveStep}
+                disabled={!isRecording}
+                aria-label="Save step"
+                title="Save step"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  💾
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handleSavePlay}
+                disabled={!isRecording}
+                aria-label="Save play"
+                title="Save play"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ✅
+                </span>
+              </button>
+              <div className={styles.recordingsTabletToolSlot}>
+                <button
+                  type="button"
+                  className={`${styles.iconRailBtn} ${recordingsTabletPopover === 'savedPlays' ? styles.iconRailBtnActive : ''}`}
+                  onClick={() =>
+                    setRecordingsTabletPopover((current) =>
+                      current === 'savedPlays' ? null : 'savedPlays',
+                    )
+                  }
+                  disabled={playsLoading}
+                  aria-label="Saved plays"
+                  title="Saved plays"
+                >
+                  <span className={styles.iconRailGlyph} aria-hidden>
+                    📚
+                  </span>
+                </button>
+                {recordingsTabletPopover === 'savedPlays' ? (
+                  <div className={styles.recordingsTabletPopover} aria-label="Saved plays list">
+                    <button
+                      type="button"
+                      className={`${styles.recordingsPlayOptionBtn} ${selectedPlayId == null ? styles.recordingsPlayOptionBtnActive : ''}`}
+                      onClick={() => handleSelectPlay('')}
+                    >
+                      None
+                    </button>
+                    {plays.map((play) => (
+                      <button
+                        key={`recording-play-${play.id}`}
+                        type="button"
+                        className={`${styles.recordingsPlayOptionBtn} ${selectedPlayId === play.id ? styles.recordingsPlayOptionBtnActive : ''}`}
+                        onClick={() => handleSelectPlay(play.id)}
+                      >
+                        {play.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handlePlayAll}
+                disabled={!selectedPlayId || isPlaying}
+                aria-label="Play all"
+                title="Play all"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ▶
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handleReplay}
+                disabled={!selectedPlayId || isPlaying}
+                aria-label="Restart"
+                title="Restart"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ↺
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handlePrevStep}
+                disabled={!selectedPlayId || isPlaying}
+                aria-label="Previous step"
+                title="Previous step"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ⟵
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconRailBtn}
+                onClick={handleNextStep}
+                disabled={!selectedPlayId || isPlaying}
+                aria-label="Next step"
+                title="Next step"
+              >
+                <span className={styles.iconRailGlyph} aria-hidden>
+                  ⟶
+                </span>
+              </button>
+            </div>
+          ) : null}
+          {activeTab === 'recordings' && recordingsCreateOpen ? (
+            <div className={styles.recordingsCreateOverlay} role="dialog" aria-modal="true">
+              <form
+                className={styles.recordingsCreateCard}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  handleCreatePlayPromptConfirm()
+                }}
+              >
+                <label className={styles.recordingsCreateLabel} htmlFor="recordings-play-name">
+                  Name your play
+                </label>
+                <input
+                  id="recordings-play-name"
+                  className={styles.input}
+                  type="text"
+                  value={recordingsCreateName}
+                  onChange={(event) => setRecordingsCreateName(event.target.value)}
+                  placeholder={`Play ${plays.length + 1}`}
+                  autoFocus
+                />
+                <div className={styles.recordingsCreateActions}>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onClick={() => setRecordingsCreateOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className={styles.btn}>
+                    Create
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
+          {activeTab === 'recordings' && recordingsToast ? (
+            <div className={styles.recordingsToast} role="status" aria-live="polite">
+              {recordingsToast}
             </div>
           ) : null}
         </div>
